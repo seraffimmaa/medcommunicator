@@ -1162,29 +1162,215 @@ function MyDoctorsScreen({ navigate }) {
   );
 }
 
+// ── AUTH & ROLE SCREEN ───────────────────────────────────────────────────────
+
+function AuthScreen({ onAuth }) {
+  const [step, setStep] = useState("role"); // role | confirm
+  const [role, setRole] = useState(null);
+
+  // Get Telegram user data
+  const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+  const userName = tgUser?.first_name || "Пользователь";
+  const userLastName = tgUser?.last_name || "";
+  const userPhoto = tgUser?.photo_url || null;
+  const fullName = `${userName} ${userLastName}`.trim();
+
+  const handleSelect = (r) => {
+    setRole(r);
+    setStep("confirm");
+  };
+
+  const handleConfirm = () => {
+    onAuth({ name: fullName, photo: userPhoto, role, telegramId: tgUser?.id || "demo" });
+  };
+
+  return (
+    <div style={{ minHeight: "100%", background: COLORS.bg, display: "flex", flexDirection: "column" }}>
+      {/* Header */}
+      <div style={{ background: `linear-gradient(135deg, ${COLORS.primaryDark} 0%, ${COLORS.primary} 100%)`, padding: "40px 24px 32px", position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: -40, right: -40, width: 200, height: 200, borderRadius: "50%", background: "rgba(255,255,255,0.05)" }} />
+        <div style={{ position: "absolute", bottom: -20, left: -20, width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.04)" }} />
+        <div style={{ textAlign: "center", position: "relative" }}>
+          {/* Avatar */}
+          <div style={{ width: 72, height: 72, borderRadius: "50%", background: "rgba(255,255,255,0.2)", margin: "0 auto 12px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, border: "3px solid rgba(255,255,255,0.3)", overflow: "hidden" }}>
+            {userPhoto ? <img src={userPhoto} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "👤"}
+          </div>
+          <div style={{ fontFamily: "'DM Sans', sans-serif", color: "rgba(255,255,255,0.8)", fontSize: 13, marginBottom: 4 }}>Добро пожаловать</div>
+          <div style={{ fontFamily: "'Instrument Serif', serif", color: "#fff", fontSize: 22 }}>{fullName}</div>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, padding: "28px 20px" }}>
+        {step === "role" && (
+          <>
+            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 22, color: COLORS.text, marginBottom: 6, textAlign: "center" }}>Кто вы?</div>
+            <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, textAlign: "center", marginBottom: 28, lineHeight: 1.6 }}>
+              Выберите роль — интерфейс подстроится под вас
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {/* Patient */}
+              <div onClick={() => handleSelect("patient")} style={{ background: "#fff", borderRadius: 20, padding: "22px 20px", border: `2px solid ${COLORS.border}`, cursor: "pointer", transition: "all 0.15s", boxShadow: "0 2px 12px rgba(42,122,111,0.07)" }}
+                onMouseEnter={e => { e.currentTarget.style.border = `2px solid ${COLORS.primary}`; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                onMouseLeave={e => { e.currentTarget.style.border = `2px solid ${COLORS.border}`; e.currentTarget.style.transform = "translateY(0)"; }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                  <div style={{ width: 56, height: 56, borderRadius: 18, background: COLORS.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, flexShrink: 0 }}>🙋</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 700, color: COLORS.text, fontSize: 17, marginBottom: 4 }}>Я пациент</div>
+                    <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, lineHeight: 1.5 }}>Записаться к врачу, смотреть результаты анализов, получать рецепты</div>
+                  </div>
+                  <span style={{ color: COLORS.primary, fontSize: 20 }}>›</span>
+                </div>
+              </div>
+
+              {/* Doctor */}
+              <div onClick={() => handleSelect("doctor")} style={{ background: "#fff", borderRadius: 20, padding: "22px 20px", border: `2px solid ${COLORS.border}`, cursor: "pointer", transition: "all 0.15s", boxShadow: "0 2px 12px rgba(42,122,111,0.07)" }}
+                onMouseEnter={e => { e.currentTarget.style.border = `2px solid #E65100`; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                onMouseLeave={e => { e.currentTarget.style.border = `2px solid ${COLORS.border}`; e.currentTarget.style.transform = "translateY(0)"; }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                  <div style={{ width: 56, height: 56, borderRadius: 18, background: "#FFF3E0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, flexShrink: 0 }}>👨‍⚕️</div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 700, color: COLORS.text, fontSize: 17, marginBottom: 4 }}>Я врач</div>
+                    <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, lineHeight: 1.5 }}>Управлять расписанием, вести пациентов, выписывать рецепты</div>
+                  </div>
+                  <span style={{ color: "#E65100", fontSize: 20 }}>›</span>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {step === "confirm" && (
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 56, marginBottom: 16 }}>{role === "patient" ? "🙋" : "👨‍⚕️"}</div>
+            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 22, color: COLORS.text, marginBottom: 8 }}>
+              {role === "patient" ? "Входите как пациент" : "Входите как врач"}
+            </div>
+            <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 14, marginBottom: 32, lineHeight: 1.6 }}>
+              Аккаунт привязан к вашему Telegram.<br />Роль можно изменить в профиле.
+            </div>
+            <Btn onClick={handleConfirm} style={{ width: "100%", padding: "14px", fontSize: 16, marginBottom: 12 }}>
+              Войти →
+            </Btn>
+            <button onClick={() => setStep("role")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, textDecoration: "underline" }}>
+              Назад к выбору роли
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── PROFILE SCREEN ────────────────────────────────────────────────────────────
+
+function ProfileScreen({ user, onSwitchRole, onLogout, navigate }) {
+  const [switching, setSwitching] = useState(false);
+
+  const handleSwitch = (newRole) => {
+    onSwitchRole(newRole);
+    setSwitching(false);
+  };
+
+  return (
+    <div style={{ minHeight: "100%", background: COLORS.bg }}>
+      <TopBar title="Профиль" onBack={() => navigate("home")} />
+      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+
+        {/* User card */}
+        <Card style={{ textAlign: "center", padding: "28px 20px" }}>
+          <div style={{ width: 72, height: 72, borderRadius: "50%", background: COLORS.primaryLight, margin: "0 auto 12px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, overflow: "hidden", border: `3px solid ${COLORS.primary}33` }}>
+            {user.photo ? <img src={user.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "👤"}
+          </div>
+          <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 20, color: COLORS.text, marginBottom: 6 }}>{user.name}</div>
+          <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
+            <Badge color={user.role === "patient" ? "teal" : "orange"}>
+              {user.role === "patient" ? "🙋 Пациент" : "👨‍⚕️ Врач"}
+            </Badge>
+            <Badge color="gray">Telegram ID: {user.telegramId}</Badge>
+          </div>
+        </Card>
+
+        {/* Switch role */}
+        <Card>
+          <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14, marginBottom: 12 }}>🔄 Сменить роль</div>
+          {!switching ? (
+            <Btn onClick={() => setSwitching(true)} variant="ghost" style={{ width: "100%" }}>
+              Переключиться на {user.role === "patient" ? "врача 👨‍⚕️" : "пациента 🙋"}
+            </Btn>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, marginBottom: 4 }}>Выберите новую роль:</div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <Btn onClick={() => handleSwitch("patient")} variant={user.role === "patient" ? "primary" : "outline"} style={{ flex: 1 }}>🙋 Пациент</Btn>
+                <Btn onClick={() => handleSwitch("doctor")} variant={user.role === "doctor" ? "primary" : "outline"} style={{ flex: 1, borderColor: "#E65100", color: user.role === "doctor" ? "#fff" : "#E65100", background: user.role === "doctor" ? "#E65100" : "transparent" }}>👨‍⚕️ Врач</Btn>
+              </div>
+              <button onClick={() => setSwitching(false)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, textDecoration: "underline" }}>Отмена</button>
+            </div>
+          )}
+        </Card>
+
+        {/* Info */}
+        <Card>
+          <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14, marginBottom: 10 }}>ℹ️ О приложении</div>
+          <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, lineHeight: 1.6 }}>МедЦентр Здоровье · ul. Swobodna 1, Wrocław<br />Версия 1.0</div>
+        </Card>
+
+        <Btn onClick={onLogout} variant="outline" style={{ width: "100%", borderColor: COLORS.danger, color: COLORS.danger }}>Выйти из аккаунта</Btn>
+      </div>
+    </div>
+  );
+}
+
 // ── NAV BAR ──────────────────────────────────────────────────────────────────
 
-const NAV = [
+const NAV_PATIENT = [
   { screen: "home", icon: "🏠", label: "Главная" },
   { screen: "appointment", icon: "📅", label: "Запись" },
   { screen: "support", icon: "🤖", label: "Помощник" },
   { screen: "mydoctors", icon: "💬", label: "Врачи" },
-  { screen: "results", icon: "🧪", label: "Анализы" },
+  { screen: "profile", icon: "👤", label: "Профиль" },
 ];
+
+const NAV_DOCTOR = [
+  { screen: "home", icon: "🏠", label: "Главная" },
+  { screen: "mydoctors", icon: "💬", label: "Пациенты" },
+  { screen: "results", icon: "🧪", label: "Анализы" },
+  { screen: "prescriptions", icon: "💊", label: "Рецепты" },
+  { screen: "profile", icon: "👤", label: "Профиль" },
+];
+
 
 // ── APP ──────────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const [user, setUser] = useState(null); // null = not authed
   const [screen, setScreen] = useState("home");
-
   const [appointmentFrom, setAppointmentFrom] = useState("home");
+
   const navigateTo = (s, from) => {
     if (s === "appointment" && from) setAppointmentFrom(from);
     setScreen(s);
   };
 
+  const handleAuth = (userData) => {
+    setUser(userData);
+    setScreen("home");
+  };
+
+  const handleSwitchRole = (newRole) => {
+    setUser(u => ({ ...u, role: newRole }));
+    setScreen("home");
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    setScreen("home");
+  };
+
+  const NAV = user?.role === "doctor" ? NAV_DOCTOR : NAV_PATIENT;
+
   const screenMap = {
-    home: <HomeScreen navigate={navigateTo} />,
+    home: <HomeScreen navigate={navigateTo} user={user} />,
     doctors: <DoctorsScreen navigate={navigateTo} />,
     services: <ServicesScreen navigate={navigateTo} />,
     appointment: <AppointmentScreen navigate={navigateTo} fromScreen={appointmentFrom} />,
@@ -1193,6 +1379,7 @@ export default function App() {
     prescriptions: <PrescriptionsScreen navigate={navigateTo} />,
     support: <SupportChatScreen navigate={navigateTo} />,
     mydoctors: <MyDoctorsScreen navigate={navigateTo} />,
+    profile: <ProfileScreen user={user} onSwitchRole={handleSwitchRole} onLogout={handleLogout} navigate={navigateTo} />,
   };
 
   return (
@@ -1219,27 +1406,42 @@ export default function App() {
           {/* Telegram header */}
           <div style={{ background: COLORS.primary, padding: "8px 16px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <div style={{ width: 32, height: 32, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🏥</div>
-            <div>
+            <div style={{ flex: 1 }}>
               <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: "#fff", fontSize: 14 }}>МедЦентр Здоровье</div>
               <div style={{ fontFamily: "'DM Sans', sans-serif", color: "rgba(255,255,255,0.7)", fontSize: 11 }}>Mini App</div>
             </div>
+            {user && (
+              <div onClick={() => navigateTo("profile")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, overflow: "hidden" }}>
+                  {user.photo ? <img src={user.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "👤"}
+                </div>
+                <div style={{ background: user.role === "doctor" ? "#E65100" : "rgba(255,255,255,0.2)", borderRadius: 10, padding: "2px 8px", fontFamily: "'DM Sans', sans-serif", fontSize: 11, fontWeight: 600, color: "#fff" }}>
+                  {user.role === "doctor" ? "Врач" : "Пациент"}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Screen content */}
           <div style={{ flex: 1, overflowY: "auto" }}>
-            {screenMap[screen] || screenMap.home}
+            {!user
+              ? <AuthScreen onAuth={handleAuth} />
+              : (screenMap[screen] || screenMap.home)
+            }
           </div>
 
-          {/* Bottom nav */}
-          <div style={{ background: COLORS.card, borderTop: `1px solid ${COLORS.border}`, display: "flex", padding: "6px 0 10px", flexShrink: 0 }}>
-            {NAV.map(n => (
-              <button key={n.screen} onClick={() => navigateTo(n.screen)} style={{ flex: 1, background: "none", border: "none", cursor: "pointer", padding: "4px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                <span style={{ fontSize: 20 }}>{n.icon}</span>
-                <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, fontWeight: screen === n.screen ? 700 : 400, color: screen === n.screen ? COLORS.primary : COLORS.textMuted }}>{n.label}</span>
-                {screen === n.screen && <div style={{ width: 4, height: 4, borderRadius: "50%", background: COLORS.primary, marginTop: 1 }} />}
-              </button>
-            ))}
-          </div>
+          {/* Bottom nav — only when authed */}
+          {user && (
+            <div style={{ background: COLORS.card, borderTop: `1px solid ${COLORS.border}`, display: "flex", padding: "6px 0 10px", flexShrink: 0 }}>
+              {NAV.map(n => (
+                <button key={n.screen} onClick={() => navigateTo(n.screen)} style={{ flex: 1, background: "none", border: "none", cursor: "pointer", padding: "4px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+                  <span style={{ fontSize: 20 }}>{n.icon}</span>
+                  <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, fontWeight: screen === n.screen ? 700 : 400, color: screen === n.screen ? COLORS.primary : COLORS.textMuted }}>{n.label}</span>
+                  {screen === n.screen && <div style={{ width: 4, height: 4, borderRadius: "50%", background: COLORS.primary, marginTop: 1 }} />}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </>
