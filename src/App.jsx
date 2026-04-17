@@ -1,1159 +1,580 @@
-import { useState } from "react";
+// MedBridge · App.jsx
+// Firebase-интеграция: Auth + Firestore + Storage
+// ─────────────────────────────────────────────────────────────────────────────
+import { useState, useEffect, useRef } from "react";
+import {
+  useAuth,
+  loadVerifiedDoctors,
+  searchDoctors,
+  uploadPatientFile,
+  loadPatientFiles,
+  toggleCardAccess,
+  createAppointment,
+  updateAppointment,
+  subscribePatientAppointments,
+  subscribeDoctorAppointments,
+  updateUserProfile,
+} from "./firebaseHooks";
 
-const COLORS = {
-  bg: "#F7F9F8",
-  card: "#FFFFFF",
-  primary: "#2A7A6F",
-  primaryLight: "#E8F5F3",
-  primaryDark: "#1D5C54",
-  accent: "#4ECDC4",
-  accentWarm: "#FF6B6B",
-  text: "#1A2A28",
-  textMuted: "#6B8A86",
-  border: "#E2EEEC",
-  success: "#27AE60",
-  warning: "#F39C12",
-  danger: "#E74C3C",
+// ─── DESIGN TOKENS ────────────────────────────────────────────────────────────
+const C = {
+  bg: "#F4F7F6", card: "#FFFFFF",
+  primary: "#2A7A6F", primaryLight: "#E6F3F1", primaryDark: "#1D5C54",
+  accent: "#4ECDC4", text: "#1A2A28", muted: "#6B8A86",
+  border: "#E2EEEC", success: "#27AE60", warning: "#F39C12", danger: "#E74C3C",
 };
+const FONTS = `@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap');`;
+const serif = (size, color = C.text) => ({ fontFamily: "'Instrument Serif', serif", fontSize: size, color });
+const sans  = (size, weight = 400, color = C.text) => ({ fontFamily: "'DM Sans', sans-serif", fontSize: size, fontWeight: weight, color });
 
-const FONTS = `
-  @import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap');
-`;
-
-// ── DEMO DATA ────────────────────────────────────────────────────────────────
-
-const DOCTORS = [
-  { id: 1, name: "Анна Петровна Соколова", specialty: "Терапевт", exp: 14, online: true, emoji: "👩‍⚕️", slots: ["09:00","10:00","14:00","15:30"], rating: 4.9 },
-  { id: 2, name: "Дмитрий Игоревич Власов", specialty: "Кардиолог", exp: 20, online: false, emoji: "👨‍⚕️", slots: ["11:00","12:00","16:00"], rating: 4.8 },
-  { id: 3, name: "Мария Александровна Белова", specialty: "Дерматолог", exp: 9, online: true, emoji: "👩‍⚕️", slots: ["09:30","13:00","17:00"], rating: 5.0 },
-  { id: 4, name: "Сергей Николаевич Орлов", specialty: "Хирург", exp: 22, online: false, emoji: "👨‍⚕️", slots: ["10:00","15:00"], rating: 4.7 },
-];
-
-const SERVICES = [
-  { id: 1, name: "Консультация терапевта", price: 2500, duration: 30, online: true, category: "Консультации", icon: "🩺" },
-  { id: 2, name: "ЭКГ с расшифровкой", price: 1800, duration: 20, online: false, category: "Диагностика", icon: "💓" },
-  { id: 3, name: "Онлайн-консультация", price: 1500, duration: 30, online: true, category: "Онлайн", icon: "💬" },
-  { id: 4, name: "УЗИ брюшной полости", price: 3200, duration: 40, online: false, category: "Диагностика", icon: "🔬" },
-  { id: 5, name: "Анализ крови (общий)", price: 800, duration: 10, online: false, category: "Анализы", icon: "🩸" },
-  { id: 6, name: "Дерматоскопия", price: 2200, duration: 25, online: false, category: "Диагностика", icon: "🔍" },
-  { id: 7, name: "Консультация кардиолога", price: 3000, duration: 40, online: false, category: "Консультации", icon: "❤️" },
-  { id: 8, name: "Биохимия крови", price: 1400, duration: 10, online: false, category: "Анализы", icon: "🧪" },
-];
-
-const RESULTS = [
-  { id: 1, name: "Общий анализ крови", date: "02 мар 2025", status: "ready", values: [
-    { label: "Гемоглобин", value: "138 г/л", norm: "120–160", ok: true },
-    { label: "Лейкоциты", value: "7.2 × 10⁹/л", norm: "4.0–9.0", ok: true },
-    { label: "Тромбоциты", value: "180 × 10⁹/л", norm: "150–400", ok: true },
-    { label: "СОЭ", value: "22 мм/ч", norm: "2–15", ok: false },
-  ], doctor: "Соколова А.П.", comment: "Незначительное повышение СОЭ. Рекомендую повторить через 2 недели." },
-  { id: 2, name: "Биохимия крови", date: "28 фев 2025", status: "ready", values: [
-    { label: "Глюкоза", value: "4.8 ммоль/л", norm: "3.9–6.1", ok: true },
-    { label: "Холестерин", value: "5.2 ммоль/л", norm: "до 5.2", ok: true },
-    { label: "АЛТ", value: "28 Ед/л", norm: "до 40", ok: true },
-  ], doctor: "Власов Д.И.", comment: "Показатели в норме." },
-  { id: 3, name: "Анализ мочи", date: "01 мар 2025", status: "pending" },
-];
-
-const PRESCRIPTIONS = [
-  { id: 1, drug: "Амоксициллин 500мг", dosage: "1 таб × 3 раза в день", duration: "7 дней", doctor: "Соколова А.П.", date: "01 мар 2025", active: true, instructions: "Принимать после еды, запивать водой. Не пропускать приём." },
-  { id: 2, drug: "Лоратадин 10мг", dosage: "1 таб × 1 раз в день", duration: "14 дней", doctor: "Белова М.А.", date: "20 фев 2025", active: true, instructions: "Принимать утром натощак." },
-  { id: 3, drug: "Омепразол 20мг", dosage: "1 кап × 2 раза в день", duration: "21 день", doctor: "Соколова А.П.", date: "10 фев 2025", active: false, instructions: "" },
-];
-
-const CHAT_HISTORY = {
-  1: [
-    { from: "doctor", text: "Добрый день! Как вы себя чувствуете после курса лечения?", time: "10:02" },
-    { from: "me", text: "Здравствуйте! Намного лучше, температура прошла.", time: "10:15" },
-    { from: "doctor", text: "Отлично. Продолжайте принимать антибиотик до конца курса, даже если почувствуете себя полностью здоровым.", time: "10:17" },
-    { from: "me", text: "Понял, спасибо!", time: "10:18" },
-  ],
-};
-
-const MY_DOCTORS_DATA = [
-  {
-    id: 1, doctorId: 1, lastVisit: "01 мар 2025", nextVisit: "15 мар 2025",
-    status: "active",
-    history: [
-      { from: "doctor", text: "Добрый день! Как вы себя чувствуете после курса лечения?", time: "10:02", date: "01 мар" },
-      { from: "me", text: "Намного лучше, температура прошла.", time: "10:15", date: "01 мар" },
-      { from: "doctor", text: "Отлично. Продолжайте принимать антибиотик до конца курса.", time: "10:17", date: "01 мар" },
-    ],
-  },
-  {
-    id: 2, doctorId: 3, lastVisit: "20 фев 2025", nextVisit: null,
-    status: "closed",
-    history: [
-      { from: "doctor", text: "Результаты дерматоскопии в норме. Рекомендую повторный осмотр через год.", time: "14:30", date: "20 фев" },
-      { from: "me", text: "Спасибо! Нужно ли что-то особенное использовать для профилактики?", time: "14:45", date: "20 фев" },
-      { from: "doctor", text: "Используйте SPF 30+ ежедневно, особенно весной и летом.", time: "14:50", date: "20 фев" },
-    ],
-  },
-];
-
-const SUPPORT_SCENARIOS = [
-  {
-    id: "headache",
-    trigger: "Голова",
-    questions: [
-      { id: "q1", text: "Как давно болит голова?", options: ["Первый раз", "Несколько дней", "Больше недели", "Хроническая боль"] },
-      { id: "q2", text: "Где локализуется боль?", options: ["Висок/Лоб", "Затылок", "Вся голова", "Одна сторона"] },
-      { id: "q3", text: "Есть ли сопутствующие симптомы?", options: ["Тошнота", "Светобоязнь", "Давление", "Ничего"] },
-    ],
-    result: { doctor: 1, specialty: "Терапевт", urgency: "normal", message: "По вашим симптомам рекомендуем консультацию терапевта. Это поможет исключить причины и подобрать лечение." },
-  },
-  {
-    id: "skin",
-    trigger: "Кожа",
-    questions: [
-      { id: "q1", text: "Что вас беспокоит?", options: ["Высыпания", "Родинка изменилась", "Сухость/зуд", "Другое"] },
-      { id: "q2", text: "Как давно это началось?", options: ["Только появилось", "Несколько недель", "Больше месяца"] },
-      { id: "q3", text: "Есть ли аллергия или хронические болезни кожи?", options: ["Да", "Нет", "Не знаю"] },
-    ],
-    result: { doctor: 3, specialty: "Дерматолог", urgency: "normal", message: "Рекомендуем консультацию дерматолога. Специалист проведёт осмотр и при необходимости назначит дерматоскопию." },
-  },
-  {
-    id: "heart",
-    trigger: "Сердце",
-    questions: [
-      { id: "q1", text: "Что беспокоит?", options: ["Боль в груди", "Учащённый пульс", "Одышка", "Давление"] },
-      { id: "q2", text: "Боль возникает?", options: ["В покое", "При нагрузке", "Постоянно", "Периодически"] },
-      { id: "q3", text: "Бывают обмороки или головокружение?", options: ["Да, часто", "Иногда", "Нет"] },
-    ],
-    result: { doctor: 2, specialty: "Кардиолог", urgency: "high", message: "Симптомы требуют консультации кардиолога. При острой боли в груди — немедленно вызовите скорую." },
-  },
-];
-
-// ── REUSABLE UI ──────────────────────────────────────────────────────────────
-
-const css = (strings, ...vals) => strings.reduce((a, s, i) => a + s + (vals[i] ?? ""), "");
-
-function Badge({ color, children }) {
-  const colors = {
-    green: { bg: "#E8F5E9", text: "#2E7D32" },
-    teal: { bg: COLORS.primaryLight, text: COLORS.primary },
-    orange: { bg: "#FFF3E0", text: "#E65100" },
-    red: { bg: "#FFEBEE", text: "#C62828" },
-    gray: { bg: "#F5F5F5", text: "#616161" },
-  };
-  const c = colors[color] || colors.gray;
-  return (
-    <span style={{ background: c.bg, color: c.text, padding: "2px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", letterSpacing: 0.3 }}>
-      {children}
-    </span>
-  );
-}
-
+// ─── UI PRIMITIVES ────────────────────────────────────────────────────────────
 function Card({ children, style, onClick }) {
   return (
-    <div onClick={onClick} style={{
-      background: COLORS.card, borderRadius: 16, padding: "16px 18px",
-      boxShadow: "0 2px 12px rgba(42,122,111,0.07)", border: `1px solid ${COLORS.border}`,
-      cursor: onClick ? "pointer" : "default", transition: "transform 0.15s, box-shadow 0.15s",
-      ...style
-    }}
-      onMouseEnter={e => { if (onClick) { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 6px 20px rgba(42,122,111,0.13)"; } }}
-      onMouseLeave={e => { if (onClick) { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "0 2px 12px rgba(42,122,111,0.07)"; } }}
-    >
+    <div onClick={onClick} style={{ background: C.card, borderRadius: 16, padding: "16px 18px", boxShadow: "0 2px 10px rgba(42,122,111,0.06)", border: `1px solid ${C.border}`, cursor: onClick ? "pointer" : "default", ...style }}>
       {children}
     </div>
   );
 }
-
-function TopBar({ title, onBack, right }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", padding: "14px 18px 10px", background: COLORS.card, borderBottom: `1px solid ${COLORS.border}`, position: "sticky", top: 0, zIndex: 10 }}>
-      {onBack && (
-        <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", padding: "4px 8px 4px 0", fontSize: 20, color: COLORS.primary }}>←</button>
-      )}
-      <span style={{ flex: 1, fontFamily: "'Instrument Serif', serif", fontSize: 20, color: COLORS.text }}>{title}</span>
-      {right}
-    </div>
-  );
-}
-
-function Btn({ children, onClick, variant = "primary", style, disabled }) {
-  const styles = {
-    primary: { background: COLORS.primary, color: "#fff" },
-    outline: { background: "transparent", color: COLORS.primary, border: `1.5px solid ${COLORS.primary}` },
-    danger: { background: COLORS.danger, color: "#fff" },
-    ghost: { background: COLORS.primaryLight, color: COLORS.primary },
+function Btn({ children, onClick, variant = "primary", style, disabled, small }) {
+  const vs = {
+    primary: { background: C.primary, color: "#fff", border: "none" },
+    outline:  { background: "transparent", color: C.primary, border: `1.5px solid ${C.primary}` },
+    ghost:    { background: C.primaryLight, color: C.primary, border: "none" },
+    danger:   { background: C.danger, color: "#fff", border: "none" },
   };
   return (
-    <button onClick={onClick} disabled={disabled} style={{
-      ...styles[variant], padding: "12px 22px", borderRadius: 12, border: "none",
-      fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 14,
-      cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1,
-      transition: "opacity 0.15s, transform 0.1s", ...style
-    }}
-      onMouseDown={e => { if (!disabled) e.currentTarget.style.transform = "scale(0.97)"; }}
-      onMouseUp={e => { e.currentTarget.style.transform = "scale(1)"; }}
-    >
+    <button onClick={onClick} disabled={disabled} style={{ ...vs[variant], padding: small ? "8px 16px" : "12px 22px", borderRadius: 12, fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: small ? 13 : 14, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, ...style }}>
       {children}
     </button>
   );
 }
-
-// ── SCREENS ──────────────────────────────────────────────────────────────────
-
-function HomeScreen({ navigate }) {
-  const today = new Date().toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" });
+function Input({ label, value, onChange, type = "text", placeholder, required }) {
   return (
-    <div style={{ minHeight: "100%", background: COLORS.bg }}>
-      {/* Header */}
-      <div style={{ background: `linear-gradient(135deg, ${COLORS.primaryDark} 0%, ${COLORS.primary} 60%, ${COLORS.accent} 100%)`, padding: "28px 20px 32px", position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", top: -30, right: -30, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,0.06)" }} />
-        <div style={{ position: "absolute", bottom: -40, right: 30, width: 100, height: 100, borderRadius: "50%", background: "rgba(255,255,255,0.04)" }} />
-        <div style={{ fontFamily: "'DM Sans', sans-serif", color: "rgba(255,255,255,0.75)", fontSize: 13, marginBottom: 4, textTransform: "capitalize" }}>{today}</div>
-        <div style={{ fontFamily: "'Instrument Serif', serif", color: "#fff", fontSize: 26, lineHeight: 1.2, marginBottom: 6 }}>Добрый день,<br /><em>Алексей!</em></div>
-        <div style={{ fontFamily: "'DM Sans', sans-serif", color: "rgba(255,255,255,0.8)", fontSize: 13 }}>МедЦентр Здоровье · ul. Swobodna 1, Wrocław</div>
-      </div>
-
-      <div style={{ padding: "20px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
-        {/* Next appointment banner */}
-        <Card style={{ background: `linear-gradient(120deg, ${COLORS.primaryLight} 0%, #fff 100%)`, border: `1.5px solid ${COLORS.primary}22` }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ fontSize: 32 }}>📅</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: COLORS.textMuted, fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 2 }}>Ближайший приём</div>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14 }}>Соколова А.П. — Терапевт</div>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.primary, fontSize: 13, fontWeight: 500, marginBottom: 5 }}>15 марта, 10:00</div>
-              <Badge color="orange">🏥 В клинике</Badge>
-            </div>
-            <Badge color="teal">Завтра</Badge>
-          </div>
-        </Card>
-
-        {/* Main menu grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-          {[
-            { icon: "👨‍⚕️", label: "Врачи", sub: "4 специалиста", screen: "doctors", color: "#E8F5F3" },
-            { icon: "🩺", label: "Услуги", sub: "8 позиций", screen: "services", color: "#FFF3E0" },
-            { icon: "📋", label: "Записаться", sub: "Приём / Анализы", screen: "appointment", color: "#E8F5F3" },
-            { icon: "🤖", label: "AI-помощник", sub: "Подбор специалиста", screen: "support", color: "#EDE7F6" },
-            { icon: "💬", label: "Мои врачи", sub: "Переписка / история", screen: "mydoctors", color: "#F3E5F5" },
-            { icon: "🧪", label: "Результаты", sub: "3 анализа", screen: "results", color: "#E3F2FD" },
-            { icon: "💊", label: "Рецепты", sub: "2 активных", screen: "prescriptions", color: "#FCE4EC" },
-            { icon: "💬", label: "Онлайн", sub: "Консультация", screen: "consult", color: "#E8F5F3" },
-          ].map(item => (
-            <Card key={item.screen} onClick={() => navigate(item.screen)} style={{ padding: "18px 16px", background: item.color, border: "none" }}>
-              <div style={{ fontSize: 28, marginBottom: 8 }}>{item.icon}</div>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 700, color: COLORS.text, fontSize: 15, marginBottom: 2 }}>{item.label}</div>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 12 }}>{item.sub}</div>
-            </Card>
-          ))}
-        </div>
-
-        {/* Clinic info */}
-        <Card>
-          <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14, marginBottom: 10 }}>🏥 О клинике</div>
-          {[
-            { icon: "📍", text: "ul. Swobodna 1, Wrocław" },
-            { icon: "📞", text: "+7 (495) 123-45-67" },
-            { icon: "🕐", text: "Пн-Пт: 8:00–20:00  |  Сб: 9:00–17:00" },
-          ].map(item => (
-            <div key={item.icon} style={{ display: "flex", gap: 10, marginBottom: 6, fontFamily: "'DM Sans', sans-serif", fontSize: 13, color: COLORS.textMuted }}>
-              <span>{item.icon}</span><span>{item.text}</span>
-            </div>
-          ))}
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-function DoctorsScreen({ navigate }) {
-  const [selected, setSelected] = useState(null);
-
-  if (selected) {
-    const d = DOCTORS.find(x => x.id === selected);
-    return (
-      <div style={{ minHeight: "100%", background: COLORS.bg }}>
-        <TopBar title={d.specialty} onBack={() => setSelected(null)} />
-        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-          <Card style={{ textAlign: "center", padding: "28px 20px" }}>
-            <div style={{ fontSize: 56, marginBottom: 12 }}>{d.emoji}</div>
-            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 22, color: COLORS.text, marginBottom: 4 }}>{d.name}</div>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.primary, fontWeight: 600, fontSize: 14, marginBottom: 8 }}>{d.specialty}</div>
-            <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
-              <Badge color="teal">Опыт {d.exp} лет</Badge>
-              {d.online && <Badge color="green">Онлайн ✓</Badge>}
-              <Badge color="gray">⭐ {d.rating}</Badge>
-            </div>
-          </Card>
-          <Card>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 14, color: COLORS.text, marginBottom: 10 }}>Доступное время</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {d.slots.map(s => (
-                <div key={s} style={{ padding: "8px 16px", borderRadius: 10, background: COLORS.primaryLight, color: COLORS.primary, fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 13 }}>{s}</div>
-              ))}
-            </div>
-          </Card>
-          <div style={{ display: "flex", gap: 10 }}>
-            <Btn onClick={() => navigate("appointment", "doctors")} style={{ flex: 1 }}>🏥 В клинику</Btn>
-            {d.online
-              ? <Btn onClick={() => navigate("consult")} variant="outline" style={{ flex: 1 }}>💬 Онлайн</Btn>
-              : <Btn disabled variant="outline" style={{ flex: 1 }}>💬 Онлайн</Btn>
-            }
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ minHeight: "100%", background: COLORS.bg }}>
-      <TopBar title="Наши врачи" onBack={() => navigate("home")} />
-      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-        {DOCTORS.map(d => (
-          <Card key={d.id} onClick={() => setSelected(d.id)}>
-            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <div style={{ width: 52, height: 52, borderRadius: "50%", background: COLORS.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, flexShrink: 0 }}>{d.emoji}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 15, marginBottom: 2 }}>{d.name}</div>
-                <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.primary, fontSize: 13, marginBottom: 5 }}>{d.specialty} · опыт {d.exp} лет</div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  {d.online && <Badge color="green">Онлайн</Badge>}
-                  <Badge color="gray">⭐ {d.rating}</Badge>
-                </div>
-              </div>
-              <span style={{ color: COLORS.textMuted, fontSize: 18 }}>›</span>
-            </div>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function ServicesScreen({ navigate }) {
-  const [format, setFormat] = useState(null); // null | "online" | "clinic"
-  const [category, setCategory] = useState("Все");
-
-  const onlineCategories = ["Все", "Консультации", "Онлайн"];
-  const clinicCategories = ["Все", "Консультации", "Диагностика", "Анализы"];
-
-  const categories = format === "online" ? onlineCategories : clinicCategories;
-
-  const filtered = SERVICES.filter(s => {
-    const matchFormat = format === "online" ? s.online : !s.online;
-    const matchCat = category === "Все" || s.category === category;
-    return matchFormat && matchCat;
-  });
-
-  // Step 1 — choose format
-  if (!format) {
-    return (
-      <div style={{ minHeight: "100%", background: COLORS.bg }}>
-        <TopBar title="Услуги" onBack={() => navigate("home")} />
-        <div style={{ padding: "24px 16px" }}>
-          <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 22, color: COLORS.text, marginBottom: 6 }}>Как удобнее?</div>
-          <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, marginBottom: 24, lineHeight: 1.6 }}>
-            Выберите формат — покажем доступные услуги
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            <Card onClick={() => { setFormat("online"); setCategory("Все"); }} style={{ padding: "24px 20px", background: "linear-gradient(120deg, #E8F5F3 0%, #fff 100%)", border: `1.5px solid ${COLORS.primary}33`, cursor: "pointer" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                <div style={{ width: 56, height: 56, borderRadius: 16, background: COLORS.primary, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, flexShrink: 0 }}>💬</div>
-                <div>
-                  <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 700, color: COLORS.text, fontSize: 16, marginBottom: 4 }}>Онлайн</div>
-                  <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, lineHeight: 1.5 }}>Консультации с врачом<br />не выходя из дома</div>
-                </div>
-                <span style={{ marginLeft: "auto", fontSize: 20, color: COLORS.primary }}>›</span>
-              </div>
-              <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${COLORS.border}` }}>
-                <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: COLORS.primary, fontWeight: 600 }}>
-                  {SERVICES.filter(s => s.online).length} услуг доступно
-                </span>
-              </div>
-            </Card>
-
-            <Card onClick={() => { setFormat("clinic"); setCategory("Все"); }} style={{ padding: "24px 20px", background: "linear-gradient(120deg, #FFF3E0 0%, #fff 100%)", border: "1.5px solid #E6521033", cursor: "pointer" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                <div style={{ width: 56, height: 56, borderRadius: 16, background: "#E65100", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, flexShrink: 0 }}>🏥</div>
-                <div>
-                  <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 700, color: COLORS.text, fontSize: 16, marginBottom: 4 }}>В клинике</div>
-                  <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, lineHeight: 1.5 }}>Диагностика, анализы<br />и очный приём врача</div>
-                </div>
-                <span style={{ marginLeft: "auto", fontSize: 20, color: "#E65100" }}>›</span>
-              </div>
-              <div style={{ marginTop: 14, paddingTop: 12, borderTop: `1px solid ${COLORS.border}` }}>
-                <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: "#E65100", fontWeight: 600 }}>
-                  {SERVICES.filter(s => !s.online).length} услуг доступно
-                </span>
-              </div>
-            </Card>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Step 2 — list with category filter
-  const isOnline = format === "online";
-  const accentColor = isOnline ? COLORS.primary : "#E65100";
-
-  return (
-    <div style={{ minHeight: "100%", background: COLORS.bg }}>
-      <TopBar
-        title={isOnline ? "Онлайн-услуги" : "Услуги в клинике"}
-        onBack={() => { setFormat(null); setCategory("Все"); }}
-        right={
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 20, background: isOnline ? COLORS.primaryLight : "#FFF3E0" }}>
-            <span style={{ fontSize: 14 }}>{isOnline ? "💬" : "🏥"}</span>
-            <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 600, color: accentColor }}>{isOnline ? "Онлайн" : "В клинике"}</span>
-          </div>
-        }
+    <div style={{ marginBottom: 14 }}>
+      {label && <div style={{ ...sans(13, 600), marginBottom: 5 }}>{label}{required && <span style={{ color: C.danger }}> *</span>}</div>}
+      <input type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+        style={{ width: "100%", padding: "11px 14px", borderRadius: 12, border: `1.5px solid ${C.border}`, ...sans(14), outline: "none", background: "#fff", boxSizing: "border-box" }}
+        onFocus={e => e.target.style.borderColor = C.primary}
+        onBlur={e => e.target.style.borderColor = C.border}
       />
-
-      {/* Category filter */}
-      <div style={{ padding: "10px 16px 6px", display: "flex", gap: 8, overflowX: "auto" }}>
-        {categories.map(c => (
-          <button key={c} onClick={() => setCategory(c)} style={{
-            padding: "7px 16px", borderRadius: 20, border: "none", cursor: "pointer", whiteSpace: "nowrap",
-            background: category === c ? accentColor : (isOnline ? COLORS.primaryLight : "#FFF3E0"),
-            color: category === c ? "#fff" : accentColor,
-            fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 13
-          }}>{c}</button>
-        ))}
+    </div>
+  );
+}
+function Textarea({ label, value, onChange, placeholder, rows = 3 }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      {label && <div style={{ ...sans(13, 600), marginBottom: 5 }}>{label}</div>}
+      <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={rows}
+        style={{ width: "100%", padding: "11px 14px", borderRadius: 12, border: `1.5px solid ${C.border}`, ...sans(14), outline: "none", background: "#fff", boxSizing: "border-box", resize: "none" }}
+        onFocus={e => e.target.style.borderColor = C.primary}
+        onBlur={e => e.target.style.borderColor = C.border}
+      />
+    </div>
+  );
+}
+function Select({ label, value, onChange, options, placeholder }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      {label && <div style={{ ...sans(13, 600), marginBottom: 5 }}>{label}</div>}
+      <select value={value} onChange={e => onChange(e.target.value)} style={{ width: "100%", padding: "11px 14px", borderRadius: 12, border: `1.5px solid ${C.border}`, ...sans(14), outline: "none", background: "#fff", appearance: "none" }}>
+        {placeholder && <option value="">{placeholder}</option>}
+        {options.map(o => <option key={o.value || o} value={o.value || o}>{o.label || o}</option>)}
+      </select>
+    </div>
+  );
+}
+function TopBar({ title, onBack, right }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", padding: "13px 18px 11px", background: C.card, borderBottom: `1px solid ${C.border}`, position: "sticky", top: 0, zIndex: 20 }}>
+      {onBack && <button onClick={onBack} style={{ background: "none", border: "none", cursor: "pointer", padding: "4px 10px 4px 0", fontSize: 20, color: C.primary }}>←</button>}
+      <span style={{ flex: 1, ...serif(19) }}>{title}</span>
+      {right}
+    </div>
+  );
+}
+function Badge({ color = "teal", children }) {
+  const map = { teal: [C.primaryLight, C.primary], green: ["#E8F5E9","#2E7D32"], orange: ["#FFF3E0","#E65100"], red: ["#FFEBEE","#C62828"], gray: ["#F5F5F5","#616161"] };
+  const [bg, text] = map[color] || map.teal;
+  return <span style={{ background: bg, color: text, padding: "3px 10px", borderRadius: 20, ...sans(11, 600) }}>{children}</span>;
+}
+function Spinner() {
+  return <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 40 }}><div style={{ width: 32, height: 32, borderRadius: "50%", border: `3px solid ${C.border}`, borderTopColor: C.primary, animation: "spin 0.8s linear infinite" }} /></div>;
+}
+function PhotoPicker({ value, onChange, size = 80 }) {
+  const ref = useRef();
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => onChange(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 18 }}>
+      <div onClick={() => ref.current.click()} style={{ width: size, height: size, borderRadius: size * 0.28, background: C.primaryLight, border: `2px dashed ${C.primary}`, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", overflow: "hidden", flexShrink: 0 }}>
+        {value ? <img src={value} style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : <span style={{ fontSize: size * 0.4 }}>📷</span>}
       </div>
-
-      <div style={{ padding: "8px 16px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
-        {filtered.length === 0 && (
-          <div style={{ textAlign: "center", padding: "40px 0", fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 14 }}>
-            Нет услуг в этой категории
-          </div>
-        )}
-        {filtered.map(s => (
-          <Card key={s.id}>
-            <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-              <div style={{ fontSize: 28, marginTop: 2 }}>{s.icon}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14, marginBottom: 3 }}>{s.name}</div>
-                <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 12, marginBottom: 8 }}>⏱ {s.duration} мин</div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <Badge color={isOnline ? "green" : "orange"}>{isOnline ? "Онлайн" : "В клинике"}</Badge>
-                  <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 700, color: accentColor, fontSize: 15 }}>{s.price.toLocaleString("ru-RU")} ₽</div>
-                </div>
-              </div>
-            </div>
-          </Card>
-        ))}
+      <input ref={ref} type="file" accept="image/*" style={{ display: "none" }} onChange={handleFile} />
+      <div>
+        <div style={{ ...sans(13, 600), marginBottom: 3 }}>Фото профиля</div>
+        <div style={{ ...sans(12, 400, C.muted) }}>Нажмите для загрузки</div>
       </div>
     </div>
   );
 }
 
-function AppointmentScreen({ navigate, fromScreen = "home" }) {
-  const [step, setStep] = useState(1);
-  const [type, setType] = useState(null);
-  const [doctor, setDoctor] = useState(null);
-  const [slot, setSlot] = useState(null);
-  const [done, setDone] = useState(false);
+// ─── LOGIN ────────────────────────────────────────────────────────────────────
+function LoginScreen({ onLogin, goRegister }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const dates = ["15 мар", "16 мар", "17 мар", "18 мар", "19 мар"];
-  const [date, setDate] = useState(dates[0]);
-
-  const handleBack = () => {
-    if (step > 1) {
-      setStep(s => s - 1);
-    } else {
-      navigate(fromScreen);
-    }
+  const handleLogin = async () => {
+    setError(""); setLoading(true);
+    const err = await onLogin(email, password);
+    if (err) { setError(err); setLoading(false); }
   };
 
-  const [surveyStep, setSurveyStep] = useState(0); // 0=not started, 1-4=questions, 5=done
-  const [surveyAnswers, setSurveyAnswers] = useState({});
+  return (
+    <div style={{ minHeight: "100%", display: "flex", flexDirection: "column" }}>
+      {/* Hero */}
+      <div style={{ background: `linear-gradient(145deg, ${C.primaryDark} 0%, ${C.primary} 55%, #3aada3 100%)`, padding: "40px 24px 32px", position: "relative", overflow: "hidden" }}>
+        <div style={{ position: "absolute", top: -40, right: -40, width: 160, height: 160, borderRadius: "50%", background: "rgba(255,255,255,0.06)" }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 18 }}>
+          <div style={{ width: 52, height: 52, borderRadius: 16, background: "rgba(255,255,255,0.18)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26 }}>🌉</div>
+          <div>
+            <div style={{ ...sans(22, 700, "#fff"), letterSpacing: -0.5 }}>MedBridge</div>
+            <div style={{ ...sans(12, 400, "rgba(255,255,255,0.65)") }}>Мост между пациентом и врачом</div>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1, background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "10px 12px" }}>
+            <div style={{ fontSize: 18, marginBottom: 4 }}>🪪</div>
+            <div style={{ ...sans(13, 700, "#fff") }}>MedBridge</div>
+            <div style={{ ...sans(10, 400, "rgba(255,255,255,0.7)") }}>Моя карта</div>
+          </div>
+          <div style={{ flex: 1, background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: "10px 12px" }}>
+            <div style={{ fontSize: 18, marginBottom: 4 }}>⚕️</div>
+            <div style={{ ...sans(13, 700, "#fff") }}>MedBridge <span style={{ ...sans(11, 400, "rgba(255,255,255,0.75)") }}>Pro</span></div>
+            <div style={{ ...sans(10, 400, "rgba(255,255,255,0.7)") }}>Кабинет врача</div>
+          </div>
+        </div>
+      </div>
 
-  const PRE_SURVEY = [
-    { q: "Основная жалоба / причина визита?", type: "text", placeholder: "Опишите кратко..." },
-    { q: "Как давно беспокоит?", type: "options", options: ["Впервые", "Несколько дней", "Несколько недель", "Больше месяца"] },
-    { q: "Принимаете ли сейчас какие-то лекарства?", type: "options", options: ["Нет", "Да — постоянно", "Да — курсом"] },
-    { q: "Есть ли аллергия на препараты?", type: "options", options: ["Нет", "Да", "Не знаю"] },
+      {/* Form */}
+      <div style={{ flex: 1, padding: "24px 20px" }}>
+        <div style={{ ...serif(22), marginBottom: 20 }}>Вход в аккаунт</div>
+        <Input label="Email" type="email" value={email} onChange={setEmail} placeholder="your@email.com" required />
+        <Input label="Пароль" type="password" value={password} onChange={setPassword} placeholder="••••••••" required />
+        {error && <div style={{ ...sans(13, 500, C.danger), marginBottom: 14, background: "#FFEBEE", padding: "10px 14px", borderRadius: 10 }}>⚠️ {error}</div>}
+        <Btn onClick={handleLogin} disabled={loading || !email || !password} style={{ width: "100%", marginBottom: 14 }}>
+          {loading ? "Вход..." : "Войти →"}
+        </Btn>
+        <div style={{ textAlign: "center" }}>
+          <span style={{ ...sans(13, 400, C.muted) }}>Нет аккаунта? </span>
+          <button onClick={goRegister} style={{ background: "none", border: "none", ...sans(13, 600, C.primary), cursor: "pointer" }}>Зарегистрироваться</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── REGISTER ─────────────────────────────────────────────────────────────────
+function RegisterScreen({ onRegister, goLogin }) {
+  const [step, setStep] = useState(1);
+  const [role, setRole] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const [photo, setPhoto] = useState(null);
+  const [birthDate, setBirthDate] = useState("");
+  const [bloodType, setBloodType] = useState("");
+  const [specialty, setSpecialty] = useState("");
+  const [experience, setExperience] = useState("");
+  const [cityInput, setCityInput] = useState("");
+  const [services, setServices] = useState([{ name: "", type: "online", price: "" }]);
+  const [payment, setPayment] = useState("");
+  const [resume, setResume] = useState("");
+  const [education, setEducation] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  const updateService = (i, field, val) => setServices(s => s.map((x, j) => j === i ? { ...x, [field]: val } : x));
+
+  const handleSubmit = async () => {
+    setError(""); setLoading(true);
+    const data = {
+      email, password, role, name, photo,
+      ...(role === "patient" ? { birthDate, bloodType } : {
+        specialty, experience, city: cityInput,
+        services: services.filter(s => s.name).map(s => ({ ...s, price: parseInt(s.price) || 0, currency: "RUB" })),
+        payment, resume, education,
+      })
+    };
+    const err = await onRegister(data);
+    setLoading(false);
+    if (err) { setError(err); return; }
+    if (role === "doctor") setSubmitted(true);
+  };
+
+  if (submitted) {
+    return (
+      <div style={{ minHeight: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
+        <div style={{ fontSize: 64, marginBottom: 16 }}>📋</div>
+        <div style={{ ...sans(12, 700, C.primary), letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>MedBridge Pro</div>
+        <div style={{ ...serif(24), marginBottom: 10 }}>Заявка отправлена!</div>
+        <div style={{ ...sans(14, 400, C.muted), lineHeight: 1.6, maxWidth: 280, marginBottom: 24 }}>Ваш профиль врача проверяется администратором. Публикация займёт 1–3 рабочих дня.</div>
+        <Btn onClick={goLogin} variant="ghost">← Войти</Btn>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: "100%", padding: "24px 20px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
+        <button onClick={step === 1 ? goLogin : () => setStep(1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: C.primary }}>←</button>
+        <div style={{ ...serif(22) }}>Регистрация</div>
+        <div style={{ ...sans(12, 400, C.muted), marginLeft: "auto" }}>{step}/2</div>
+      </div>
+
+      {step === 1 && (
+        <div>
+          <Input label="Email" type="email" value={email} onChange={setEmail} required />
+          <Input label="Пароль (мин. 6 символов)" type="password" value={password} onChange={setPassword} required />
+          <Input label="Полное имя" value={name} onChange={setName} placeholder="Иванов Иван Иванович" required />
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ ...sans(13, 600), marginBottom: 8 }}>Я регистрируюсь как <span style={{ color: C.danger }}>*</span></div>
+            <div style={{ display: "flex", gap: 12 }}>
+              {["patient","doctor"].map(r => (
+                <div key={r} onClick={() => setRole(r)} style={{ flex: 1, padding: "16px 12px", borderRadius: 14, cursor: "pointer", textAlign: "center", border: `2px solid ${role === r ? C.primary : C.border}`, background: role === r ? C.primaryLight : "#fff" }}>
+                  <div style={{ fontSize: 28, marginBottom: 6 }}>{r === "patient" ? "🧑" : "👨‍⚕️"}</div>
+                  <div style={{ ...sans(14, 600, role === r ? C.primary : C.text) }}>{r === "patient" ? "Пациент" : "Врач"}</div>
+                  <div style={{ ...sans(10, 400, C.muted), marginTop: 2 }}>{r === "patient" ? "MedBridge" : "MedBridge Pro"}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+          {error && <div style={{ ...sans(13, 500, C.danger), padding: "10px 14px", background: "#FFEBEE", borderRadius: 10, marginBottom: 12 }}>⚠️ {error}</div>}
+          <Btn onClick={() => { if (!email || !password || !name || !role) { setError("Заполните все поля"); return; } setError(""); setStep(2); }} style={{ width: "100%" }}>Далее →</Btn>
+        </div>
+      )}
+
+      {step === 2 && role === "patient" && (
+        <div>
+          <PhotoPicker value={photo} onChange={setPhoto} />
+          <Input label="Дата рождения" type="date" value={birthDate} onChange={setBirthDate} />
+          <Select label="Группа крови" value={bloodType} onChange={setBloodType} placeholder="Выберите группу крови"
+            options={["O(I) Rh+","O(I) Rh−","A(II) Rh+","A(II) Rh−","B(III) Rh+","B(III) Rh−","AB(IV) Rh+","AB(IV) Rh−"]} />
+          {error && <div style={{ ...sans(13, 500, C.danger), padding: "10px 14px", background: "#FFEBEE", borderRadius: 10, marginBottom: 12 }}>⚠️ {error}</div>}
+          <Btn onClick={handleSubmit} disabled={loading} style={{ width: "100%" }}>{loading ? "Создаём аккаунт..." : "Создать аккаунт"}</Btn>
+        </div>
+      )}
+
+      {step === 2 && role === "doctor" && (
+        <div>
+          <PhotoPicker value={photo} onChange={setPhoto} size={90} />
+          <Input label="Специализация" value={specialty} onChange={setSpecialty} placeholder="Терапевт, кардиолог..." required />
+          <Input label="Стаж (лет)" type="number" value={experience} onChange={setExperience} placeholder="10" />
+          <Input label="Город(а) офлайн приёма" value={cityInput} onChange={setCityInput} placeholder="Москва, Санкт-Петербург" />
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ ...sans(13, 600), marginBottom: 8 }}>Услуги</div>
+            {services.map((s, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 8, marginBottom: 8 }}>
+                <input value={s.name} onChange={e => updateService(i, "name", e.target.value)} placeholder="Название"
+                  style={{ padding: "10px 12px", borderRadius: 10, border: `1.5px solid ${C.border}`, ...sans(13), outline: "none" }} />
+                <select value={s.type} onChange={e => updateService(i, "type", e.target.value)}
+                  style={{ padding: "10px 8px", borderRadius: 10, border: `1.5px solid ${C.border}`, ...sans(12), background: "#fff" }}>
+                  <option value="online">Онлайн</option>
+                  <option value="offline">Офлайн</option>
+                </select>
+                <input value={s.price} onChange={e => updateService(i, "price", e.target.value)} placeholder="₽"
+                  style={{ width: 64, padding: "10px 8px", borderRadius: 10, border: `1.5px solid ${C.border}`, ...sans(13), outline: "none", textAlign: "center" }} />
+              </div>
+            ))}
+            <button onClick={() => setServices(s => [...s, { name: "", type: "online", price: "" }])} style={{ background: "none", border: "none", ...sans(13, 600, C.primary), cursor: "pointer" }}>+ Услуга</button>
+          </div>
+          <Input label="Способ оплаты" value={payment} onChange={setPayment} placeholder="Перевод на карту / ссылка..." />
+          <Input label="Образование" value={education} onChange={setEducation} placeholder="ВУЗ, год окончания" />
+          <Textarea label="Резюме / Опыт работы" value={resume} onChange={setResume} placeholder="Опишите опыт..." rows={4} />
+          <div style={{ background: "#FFF3E0", borderRadius: 12, padding: "12px 14px", marginBottom: 16, display: "flex", gap: 10 }}>
+            <span style={{ fontSize: 18 }}>🔍</span>
+            <div style={{ ...sans(12, 400, "#7B4A00"), lineHeight: 1.5 }}><b>Верификация:</b> Профиль будет проверен администратором перед публикацией (1–3 дня).</div>
+          </div>
+          {error && <div style={{ ...sans(13, 500, C.danger), padding: "10px 14px", background: "#FFEBEE", borderRadius: 10, marginBottom: 12 }}>⚠️ {error}</div>}
+          <Btn onClick={handleSubmit} disabled={loading} style={{ width: "100%" }}>{loading ? "Отправляем..." : "Отправить на верификацию"}</Btn>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── PATIENT APP ──────────────────────────────────────────────────────────────
+function PatientApp({ profile, currentUser, logout }) {
+  const [tab, setTab]           = useState("home");
+  const [subScreen, setSubScreen] = useState(null);
+  const [doctors, setDoctors]   = useState([]);
+  const [appointments, setAppointments] = useState([]);
+  const [files, setFiles]       = useState([]);
+
+  // Загрузить врачей и файлы при монтировании
+  useEffect(() => {
+    loadVerifiedDoctors().then(setDoctors);
+    loadPatientFiles(currentUser.uid).then(setFiles);
+    // Подписка на записи в реальном времени
+    const unsub = subscribePatientAppointments(currentUser.uid, setAppointments);
+    return unsub;
+  }, [currentUser.uid]);
+
+  const handleAddFile = async (fileData) => {
+    const saved = await uploadPatientFile(currentUser.uid, fileData);
+    setFiles(f => [saved, ...f]);
+  };
+
+  const handleGrantAccess = async (doctorId) => {
+    const granted = profile.card?.accessGranted || [];
+    const give = !granted.includes(doctorId);
+    await toggleCardAccess(currentUser.uid, doctorId, give);
+    // Обновляем локально сразу (оптимистично)
+    // Реальные данные подтянутся при следующем refreshProfile
+  };
+
+  const handleCreateAppointment = async (data) => {
+    await createAppointment({ ...data, patientId: currentUser.uid });
+  };
+
+  const TABS = [
+    { id: "home",  icon: "🏠", label: "Главная" },
+    { id: "files", icon: "📁", label: "Файлы" },
+    { id: "access",icon: "🔑", label: "Доступ" },
+    { id: "book",  icon: "📅", label: "Запись" },
   ];
 
-  if (done && surveyStep === 0) {
-    return (
-      <div style={{ minHeight: "100%", background: COLORS.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
-        <div style={{ fontSize: 72, marginBottom: 16 }}>✅</div>
-        <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 26, color: COLORS.text, marginBottom: 8 }}>Запись подтверждена!</div>
-        <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 14, marginBottom: 4 }}>{DOCTORS.find(d => d.id === doctor)?.name}</div>
-        <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.primary, fontSize: 16, marginBottom: 24 }}>{date} · {slot}</div>
-        <Card style={{ width: "100%", background: COLORS.primaryLight, border: `1.5px solid ${COLORS.primary}33`, textAlign: "left", marginBottom: 16 }}>
-          <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 700, color: COLORS.text, fontSize: 14, marginBottom: 6 }}>📋 Заполните опрос для врача</div>
-          <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, lineHeight: 1.5, marginBottom: 12 }}>Займёт 1 минуту. Врач ознакомится с вашими ответами до приёма — это сэкономит время и поможет лучше подготовиться.</div>
-          <Btn onClick={() => setSurveyStep(1)} style={{ width: "100%" }}>Заполнить сейчас</Btn>
-        </Card>
-        <button onClick={() => navigate("home")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, textDecoration: "underline" }}>Заполню позже</button>
-      </div>
-    );
-  }
-
-  if (done && surveyStep > 0 && surveyStep <= PRE_SURVEY.length) {
-    const q = PRE_SURVEY[surveyStep - 1];
-    const [textVal, setTextVal] = useState("");
-    return (
-      <div style={{ minHeight: "100%", background: COLORS.bg }}>
-        <div style={{ padding: "14px 18px 10px", background: COLORS.card, borderBottom: `1px solid ${COLORS.border}`, display: "flex", alignItems: "center", gap: 10 }}>
-          <button onClick={() => setSurveyStep(s => s - 1)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: COLORS.primary }}>←</button>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 18, color: COLORS.text }}>Опрос для врача</div>
-          </div>
-          <span style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13 }}>{surveyStep}/{PRE_SURVEY.length}</span>
-        </div>
-        <div style={{ height: 4, background: COLORS.border }}>
-          <div style={{ height: "100%", background: COLORS.accent, width: `${(surveyStep / PRE_SURVEY.length) * 100}%`, transition: "width 0.3s" }} />
-        </div>
-        <div style={{ padding: 20 }}>
-          <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: COLORS.primary, fontWeight: 600, letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>Вопрос {surveyStep}</div>
-          <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 21, color: COLORS.text, marginBottom: 24, lineHeight: 1.3 }}>{q.q}</div>
-          {q.type === "text" ? (
-            <div>
-              <textarea placeholder={q.placeholder} rows={4} style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: `1.5px solid ${COLORS.border}`, fontFamily: "'DM Sans', sans-serif", fontSize: 14, outline: "none", resize: "none", boxSizing: "border-box", background: "#fff" }} />
-              <Btn style={{ width: "100%", marginTop: 16 }} onClick={() => setSurveyStep(s => s + 1)}>Далее →</Btn>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {q.options.map(opt => (
-                <button key={opt} onClick={() => { setSurveyAnswers(a => ({ ...a, [surveyStep]: opt })); setSurveyStep(s => s + 1); }}
-                  style={{ padding: "14px 18px", borderRadius: 12, border: `1.5px solid ${surveyAnswers[surveyStep] === opt ? COLORS.primary : COLORS.border}`, background: surveyAnswers[surveyStep] === opt ? COLORS.primaryLight : "#fff", fontFamily: "'DM Sans', sans-serif", fontWeight: 500, fontSize: 14, color: COLORS.text, cursor: "pointer", textAlign: "left" }}>
-                  {opt}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (done && surveyStep > PRE_SURVEY.length) {
-    return (
-      <div style={{ minHeight: "100%", background: COLORS.bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
-        <div style={{ fontSize: 64, marginBottom: 16 }}>📬</div>
-        <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 24, color: COLORS.text, marginBottom: 8 }}>Опрос отправлен врачу!</div>
-        <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, marginBottom: 28, lineHeight: 1.6, maxWidth: 280 }}>Врач ознакомится с вашими ответами до приёма. Напоминание придёт за день и за час.</div>
-        <Btn onClick={() => navigate("home")}>На главную</Btn>
-      </div>
-    );
-  }
-
   return (
-    <div style={{ minHeight: "100%", background: COLORS.bg }}>
-      <TopBar title="Запись" onBack={handleBack} right={
-        <span style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13 }}>{step}/3</span>
-      } />
-
-      {/* Progress */}
-      <div style={{ height: 4, background: COLORS.border }}>
-        <div style={{ height: "100%", background: COLORS.primary, width: `${(step / 3) * 100}%`, transition: "width 0.3s" }} />
-      </div>
-
-      <div style={{ padding: 16 }}>
-        {step === 1 && (
-          <div>
-            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 22, color: COLORS.text, marginBottom: 16 }}>Тип визита</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {[
-                { key: "doctor", icon: "👨‍⚕️", title: "Приём к врачу", sub: "Выбрать специалиста и время" },
-                { key: "tests", icon: "🧪", title: "Сдача анализов", sub: "Лаборатория, без записи к врачу" },
-              ].map(opt => (
-                <Card key={opt.key} onClick={() => { setType(opt.key); setStep(2); }} style={{ border: type === opt.key ? `2px solid ${COLORS.primary}` : undefined }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                    <span style={{ fontSize: 32 }}>{opt.icon}</span>
-                    <div>
-                      <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 15 }}>{opt.title}</div>
-                      <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13 }}>{opt.sub}</div>
-                    </div>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {step === 2 && (
-          <div>
-            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 22, color: COLORS.text, marginBottom: 16 }}>Выберите врача</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {DOCTORS.map(d => (
-                <Card key={d.id} onClick={() => { setDoctor(d.id); setStep(3); }} style={{ border: doctor === d.id ? `2px solid ${COLORS.primary}` : undefined }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <span style={{ fontSize: 26 }}>{d.emoji}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{d.name}</div>
-                      <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.primary, fontSize: 12 }}>{d.specialty}</div>
-                    </div>
-                    <span style={{ color: COLORS.textMuted }}>›</span>
-                  </div>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {step === 3 && (
-          <div>
-            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 22, color: COLORS.text, marginBottom: 16 }}>Дата и время</div>
-            {/* Date pills */}
-            <div style={{ display: "flex", gap: 8, marginBottom: 16, overflowX: "auto" }}>
-              {dates.map(d => (
-                <button key={d} onClick={() => setDate(d)} style={{
-                  padding: "8px 16px", borderRadius: 12, border: "none", cursor: "pointer", whiteSpace: "nowrap",
-                  background: date === d ? COLORS.primary : COLORS.primaryLight,
-                  color: date === d ? "#fff" : COLORS.primary,
-                  fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 13
-                }}>{d}</button>
-              ))}
-            </div>
-            {/* Time slots */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 20 }}>
-              {DOCTORS.find(d => d.id === doctor)?.slots.map(s => (
-                <button key={s} onClick={() => setSlot(s)} style={{
-                  padding: "12px 0", borderRadius: 12, border: `1.5px solid ${slot === s ? COLORS.primary : COLORS.border}`,
-                  background: slot === s ? COLORS.primary : "#fff",
-                  color: slot === s ? "#fff" : COLORS.text,
-                  fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 14, cursor: "pointer"
-                }}>{s}</button>
-              ))}
-            </div>
-            <Btn onClick={() => setDone(true)} disabled={!slot} style={{ width: "100%" }}>Подтвердить запись</Btn>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ConsultScreen({ navigate }) {
-  const [selected, setSelected] = useState(null);
-  const [input, setInput] = useState("");
-  const [messages, setMessages] = useState(CHAT_HISTORY[1] || []);
-  const [sending, setSending] = useState(false);
-
-  if (selected) {
-    const d = DOCTORS.find(x => x.id === selected);
-    const send = () => {
-      if (!input.trim()) return;
-      setMessages(prev => [...prev, { from: "me", text: input.trim(), time: new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }) }]);
-      setInput("");
-      setSending(true);
-      setTimeout(() => {
-        setMessages(prev => [...prev, { from: "doctor", text: "Понял, спасибо. Уточните, пожалуйста, когда это началось?", time: new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }) }]);
-        setSending(false);
-      }, 1400);
-    };
-
-    return (
-      <div style={{ height: "100vh", background: COLORS.bg, display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", background: COLORS.card, borderBottom: `1px solid ${COLORS.border}`, gap: 12 }}>
-          <button onClick={() => setSelected(null)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: COLORS.primary }}>←</button>
-          <div style={{ width: 38, height: 38, borderRadius: "50%", background: COLORS.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{d.emoji}</div>
-          <div>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{d.name}</div>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.success, fontSize: 12 }}>● Онлайн</div>
-          </div>
+    <div style={{ minHeight: "100%", display: "flex", flexDirection: "column" }}>
+      {subScreen?.screen === "bookDoctor" && (
+        <BookScreen doctor={subScreen.doctor} profile={profile} onBack={() => setSubScreen(null)} onCreate={handleCreateAppointment} />
+      )}
+      {!subScreen && <>
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {tab === "home"   && <PatientHome profile={profile} appointments={appointments} doctors={doctors} onBook={d => setSubScreen({ screen: "bookDoctor", doctor: d })} onLogout={logout} />}
+          {tab === "files"  && <PatientFiles files={files} onAddFile={handleAddFile} />}
+          {tab === "access" && <PatientAccess profile={profile} onGrantAccess={handleGrantAccess} />}
+          {tab === "book"   && <PatientBook doctors={doctors} onBook={d => setSubScreen({ screen: "bookDoctor", doctor: d })} />}
         </div>
-
-        <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
-          {messages.map((m, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: m.from === "me" ? "flex-end" : "flex-start" }}>
-              <div style={{
-                maxWidth: "78%", padding: "10px 14px", borderRadius: m.from === "me" ? "16px 16px 4px 16px" : "16px 16px 16px 4px",
-                background: m.from === "me" ? COLORS.primary : COLORS.card,
-                color: m.from === "me" ? "#fff" : COLORS.text,
-                fontFamily: "'DM Sans', sans-serif", fontSize: 14, lineHeight: 1.5,
-                boxShadow: "0 1px 4px rgba(0,0,0,0.08)"
-              }}>
-                {m.text}
-                <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4, textAlign: "right" }}>{m.time}</div>
-              </div>
-            </div>
-          ))}
-          {sending && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 4 }}>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, fontStyle: "italic" }}>врач печатает...</div>
-            </div>
-          )}
-        </div>
-
-        <div style={{ padding: "10px 12px", background: COLORS.card, borderTop: `1px solid ${COLORS.border}`, display: "flex", gap: 8 }}>
-          <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && send()}
-            placeholder="Написать врачу..." style={{
-              flex: 1, padding: "11px 16px", borderRadius: 24, border: `1.5px solid ${COLORS.border}`,
-              fontFamily: "'DM Sans', sans-serif", fontSize: 14, outline: "none", background: COLORS.bg
-            }} />
-          <button onClick={send} style={{ width: 44, height: 44, borderRadius: "50%", background: COLORS.primary, border: "none", cursor: "pointer", fontSize: 18 }}>↑</button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ minHeight: "100%", background: COLORS.bg }}>
-      <TopBar title="Онлайн-консультация" onBack={() => navigate("home")} />
-      <div style={{ padding: 16 }}>
-        <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, marginBottom: 16, lineHeight: 1.6 }}>
-          Задайте вопрос врачу, не выходя из дома. Консультация проходит в чате в режиме реального времени.
-        </div>
-        <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 15, marginBottom: 10 }}>Доступны онлайн</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {DOCTORS.filter(d => d.online).map(d => (
-            <Card key={d.id} onClick={() => setSelected(d.id)}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <div style={{ position: "relative" }}>
-                  <div style={{ width: 48, height: 48, borderRadius: "50%", background: COLORS.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{d.emoji}</div>
-                  <div style={{ position: "absolute", bottom: 1, right: 1, width: 12, height: 12, borderRadius: "50%", background: COLORS.success, border: "2px solid #fff" }} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{d.name}</div>
-                  <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 12, marginBottom: 4 }}>{d.specialty}</div>
-                  <Badge color="green">Онлайн сейчас</Badge>
-                </div>
-                <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 700, color: COLORS.primary, fontSize: 14 }}>1 500 ₽</div>
-              </div>
-            </Card>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ResultsScreen({ navigate }) {
-  const [selected, setSelected] = useState(null);
-
-  if (selected) {
-    const r = RESULTS.find(x => x.id === selected);
-    return (
-      <div style={{ minHeight: "100%", background: COLORS.bg }}>
-        <TopBar title={r.name} onBack={() => setSelected(null)} />
-        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-          <Card>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: COLORS.textMuted, marginBottom: 2 }}>Дата: {r.date} · Врач: {r.doctor}</div>
-          </Card>
-          {r.values?.map((v, i) => (
-            <Card key={i}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div>
-                  <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{v.label}</div>
-                  <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 12 }}>Норма: {v.norm}</div>
-                </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 700, color: v.ok ? COLORS.success : COLORS.danger, fontSize: 16 }}>{v.value}</div>
-                  <Badge color={v.ok ? "green" : "red"}>{v.ok ? "Норма" : "Выше нормы"}</Badge>
-                </div>
-              </div>
-            </Card>
-          ))}
-          {r.comment && (
-            <Card style={{ background: "#FFFDE7", border: "1.5px solid #FDD835" }}>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: "#795548", fontSize: 13, marginBottom: 4 }}>💬 Комментарий врача</div>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", color: "#5D4037", fontSize: 14, lineHeight: 1.6 }}>{r.comment}</div>
-            </Card>
-          )}
-          <Btn style={{ width: "100%" }} variant="ghost">📥 Скачать PDF</Btn>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ minHeight: "100%", background: COLORS.bg }}>
-      <TopBar title="Результаты анализов" onBack={() => navigate("home")} />
-      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-        {RESULTS.map(r => (
-          <Card key={r.id} onClick={r.status === "ready" ? () => setSelected(r.id) : undefined} style={{ opacity: r.status === "pending" ? 0.65 : 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ fontSize: 28 }}>🧪</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14, marginBottom: 3 }}>{r.name}</div>
-                <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 12 }}>{r.date}</div>
-              </div>
-              {r.status === "ready" ? <Badge color="green">Готово</Badge> : <Badge color="orange">В обработке</Badge>}
-            </div>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PrescriptionsScreen({ navigate }) {
-  const [selected, setSelected] = useState(null);
-  const [requesting, setRequesting] = useState(false);
-  const [requested, setRequested] = useState(false);
-
-  if (requesting) {
-    return (
-      <div style={{ minHeight: "100%", background: COLORS.bg }}>
-        <TopBar title="Запрос рецепта" onBack={() => setRequesting(false)} />
-        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, lineHeight: 1.6 }}>
-            Врач рассмотрит ваш запрос и выпишет рецепт в течение 24 часов
-          </div>
-          {[
-            { label: "Препарат", placeholder: "Название лекарства..." },
-            { label: "Причина", placeholder: "Для чего нужен..." },
-          ].map(f => (
-            <div key={f.label}>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 13, marginBottom: 6 }}>{f.label}</div>
-              <input placeholder={f.placeholder} style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: `1.5px solid ${COLORS.border}`, fontFamily: "'DM Sans', sans-serif", fontSize: 14, outline: "none", boxSizing: "border-box" }} />
-            </div>
-          ))}
-          <div>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 13, marginBottom: 6 }}>Врач</div>
-            <select style={{ width: "100%", padding: "12px 16px", borderRadius: 12, border: `1.5px solid ${COLORS.border}`, fontFamily: "'DM Sans', sans-serif", fontSize: 14, background: "#fff", outline: "none" }}>
-              {DOCTORS.map(d => <option key={d.id}>{d.name} — {d.specialty}</option>)}
-            </select>
-          </div>
-          {requested ? (
-            <div style={{ textAlign: "center", padding: 20 }}>
-              <div style={{ fontSize: 48, marginBottom: 10 }}>📨</div>
-              <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 20, color: COLORS.text }}>Запрос отправлен!</div>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, marginTop: 6 }}>Врач ответит в течение 24 часов</div>
-            </div>
-          ) : (
-            <Btn style={{ width: "100%" }} onClick={() => setRequested(true)}>Отправить запрос</Btn>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  if (selected) {
-    const p = PRESCRIPTIONS.find(x => x.id === selected);
-    return (
-      <div style={{ minHeight: "100%", background: COLORS.bg }}>
-        <TopBar title="Рецепт" onBack={() => setSelected(null)} />
-        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-          <Card style={{ background: p.active ? COLORS.primaryLight : "#F5F5F5" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-              <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 20, color: COLORS.text }}>{p.drug}</div>
-              <Badge color={p.active ? "green" : "gray"}>{p.active ? "Активен" : "Истёк"}</Badge>
-            </div>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13 }}>Выписан: {p.date} · {p.doctor}</div>
-          </Card>
-          {[
-            { label: "Дозировка", val: p.dosage },
-            { label: "Длительность", val: p.duration },
-            { label: "Инструкции", val: p.instructions },
-          ].map(item => item.val && (
-            <Card key={item.label}>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: COLORS.textMuted, marginBottom: 4 }}>{item.label}</div>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 500, color: COLORS.text, fontSize: 14 }}>{item.val}</div>
-            </Card>
-          ))}
-          <Btn style={{ width: "100%" }} variant="ghost">📥 Скачать рецепт</Btn>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ minHeight: "100%", background: COLORS.bg }}>
-      <TopBar title="Рецепты" onBack={() => navigate("home")} right={
-        <Btn onClick={() => setRequesting(true)} variant="ghost" style={{ padding: "7px 14px", fontSize: 13 }}>+ Запросить</Btn>
-      } />
-      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-        {PRESCRIPTIONS.map(p => (
-          <Card key={p.id} onClick={() => setSelected(p.id)} style={{ opacity: p.active ? 1 : 0.6 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontSize: 28 }}>💊</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14, marginBottom: 2 }}>{p.drug}</div>
-                <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 12, marginBottom: 4 }}>{p.dosage} · {p.duration}</div>
-                <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 11 }}>{p.doctor} · {p.date}</div>
-              </div>
-              <Badge color={p.active ? "green" : "gray"}>{p.active ? "Активен" : "Истёк"}</Badge>
-            </div>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ── SUPPORT CHAT (AI diagnostics) ────────────────────────────────────────────
-
-function SupportChatScreen({ navigate }) {
-  const [phase, setPhase] = useState("greeting"); // greeting | scenario | survey | operator | done
-  const [scenario, setScenario] = useState(null);
-  const [qIndex, setQIndex] = useState(0);
-  const [answers, setAnswers] = useState({});
-  const [messages, setMessages] = useState([
-    { from: "bot", text: "Здравствуйте! Я помогу разобраться с вашей ситуацией и подскажу, к какому специалисту обратиться. Что вас беспокоит?", time: "сейчас" },
-  ]);
-  const [opInput, setOpInput] = useState("");
-  const [opMessages, setOpMessages] = useState([
-    { from: "op", text: "Добрый день! Я передаю вас оператору. Чем могу помочь?", time: "сейчас" },
-  ]);
-  const [typing, setTyping] = useState(false);
-
-  const addBotMsg = (text, delay = 900) => {
-    setTyping(true);
-    setTimeout(() => {
-      setMessages(m => [...m, { from: "bot", text, time: "сейчас" }]);
-      setTyping(false);
-    }, delay);
-  };
-
-  const chooseSymptom = (sc) => {
-    setScenario(sc);
-    setMessages(m => [...m, { from: "me", text: sc.trigger, time: "сейчас" }]);
-    setPhase("survey");
-    setQIndex(0);
-    addBotMsg(sc.questions[0].text);
-  };
-
-  const answerQuestion = (opt) => {
-    const sc = scenario;
-    const newAnswers = { ...answers, [qIndex]: opt };
-    setAnswers(newAnswers);
-    setMessages(m => [...m, { from: "me", text: opt, time: "сейчас" }]);
-    if (qIndex + 1 < sc.questions.length) {
-      setQIndex(qIndex + 1);
-      addBotMsg(sc.questions[qIndex + 1].text);
-    } else {
-      setPhase("result");
-      addBotMsg(sc.result.message, 1000);
-    }
-  };
-
-  const sendOpMsg = () => {
-    if (!opInput.trim()) return;
-    setOpMessages(m => [...m, { from: "me", text: opInput.trim(), time: "сейчас" }]);
-    setOpInput("");
-    setTimeout(() => {
-      setOpMessages(m => [...m, { from: "op", text: "Понял вас, уточняю информацию. Один момент...", time: "сейчас" }]);
-    }, 1200);
-  };
-
-  if (phase === "operator") {
-    return (
-      <div style={{ height: "100%", background: COLORS.bg, display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", background: COLORS.card, borderBottom: `1px solid ${COLORS.border}`, gap: 12 }}>
-          <button onClick={() => navigate("home")} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: COLORS.primary }}>←</button>
-          <div style={{ width: 38, height: 38, borderRadius: "50%", background: "#E8EAF6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>👩‍💼</div>
-          <div>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14 }}>Поддержка клиники</div>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.success, fontSize: 12 }}>● Онлайн</div>
-          </div>
-        </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
-          {opMessages.map((m, i) => (
-            <div key={i} style={{ display: "flex", justifyContent: m.from === "me" ? "flex-end" : "flex-start" }}>
-              <div style={{ maxWidth: "78%", padding: "10px 14px", borderRadius: m.from === "me" ? "16px 16px 4px 16px" : "16px 16px 16px 4px", background: m.from === "me" ? COLORS.primary : COLORS.card, color: m.from === "me" ? "#fff" : COLORS.text, fontFamily: "'DM Sans', sans-serif", fontSize: 14, lineHeight: 1.5, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
-                {m.text}
-              </div>
-            </div>
-          ))}
-        </div>
-        <div style={{ padding: "10px 12px", background: COLORS.card, borderTop: `1px solid ${COLORS.border}`, display: "flex", gap: 8 }}>
-          <input value={opInput} onChange={e => setOpInput(e.target.value)} onKeyDown={e => e.key === "Enter" && sendOpMsg()} placeholder="Написать оператору..." style={{ flex: 1, padding: "11px 16px", borderRadius: 24, border: `1.5px solid ${COLORS.border}`, fontFamily: "'DM Sans', sans-serif", fontSize: 14, outline: "none", background: COLORS.bg }} />
-          <button onClick={sendOpMsg} style={{ width: 44, height: 44, borderRadius: "50%", background: COLORS.primary, border: "none", cursor: "pointer", fontSize: 18 }}>↑</button>
-        </div>
-      </div>
-    );
-  }
-
-  const sc = scenario;
-  const currentQ = sc && phase === "survey" ? sc.questions[qIndex] : null;
-
-  return (
-    <div style={{ height: "100%", background: COLORS.bg, display: "flex", flexDirection: "column" }}>
-      <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", background: COLORS.card, borderBottom: `1px solid ${COLORS.border}`, gap: 12 }}>
-        <button onClick={() => navigate("home")} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: COLORS.primary }}>←</button>
-        <div style={{ width: 38, height: 38, borderRadius: "50%", background: COLORS.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>🤖</div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14 }}>AI-помощник</div>
-          <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.success, fontSize: 12 }}>● Онлайн</div>
-        </div>
-        <button onClick={() => setPhase("operator")} style={{ background: COLORS.primaryLight, border: "none", borderRadius: 20, padding: "5px 12px", fontFamily: "'DM Sans', sans-serif", fontSize: 12, fontWeight: 600, color: COLORS.primary, cursor: "pointer" }}>👩‍💼 Оператор</button>
-      </div>
-
-      {/* Messages */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10 }}>
-        {messages.map((m, i) => (
-          <div key={i} style={{ display: "flex", justifyContent: m.from === "me" ? "flex-end" : "flex-start" }}>
-            <div style={{ maxWidth: "82%", padding: "10px 14px", borderRadius: m.from === "me" ? "16px 16px 4px 16px" : "16px 16px 16px 4px", background: m.from === "me" ? COLORS.primary : COLORS.card, color: m.from === "me" ? "#fff" : COLORS.text, fontFamily: "'DM Sans', sans-serif", fontSize: 14, lineHeight: 1.5, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
-              {m.text}
-            </div>
-          </div>
-        ))}
-        {typing && (
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ background: COLORS.card, borderRadius: 16, padding: "10px 16px", boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
-              <div style={{ display: "flex", gap: 4 }}>
-                {[0,1,2].map(i => <div key={i} style={{ width: 7, height: 7, borderRadius: "50%", background: COLORS.textMuted, animation: `pulse 1.2s ${i*0.2}s infinite` }} />)}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Symptom buttons */}
-        {phase === "greeting" && !typing && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: COLORS.textMuted, textAlign: "center", marginBottom: 4 }}>Выберите тему или напишите сами</div>
-            {SUPPORT_SCENARIOS.map(sc => (
-              <button key={sc.id} onClick={() => chooseSymptom(sc)} style={{ padding: "12px 18px", borderRadius: 12, border: `1.5px solid ${COLORS.border}`, background: COLORS.card, fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 14, color: COLORS.text, cursor: "pointer", textAlign: "left" }}>
-                {sc.id === "headache" ? "🤕 " : sc.id === "skin" ? "🔍 " : "❤️ "}{sc.trigger}
-              </button>
-            ))}
-            <button onClick={() => setPhase("operator")} style={{ padding: "12px 18px", borderRadius: 12, border: `1.5px solid ${COLORS.border}`, background: "#F3E5F5", fontFamily: "'DM Sans', sans-serif", fontWeight: 600, fontSize: 14, color: "#7B1FA2", cursor: "pointer", textAlign: "left" }}>
-              💬 Другой вопрос — написать оператору
+        <div style={{ background: C.card, borderTop: `1px solid ${C.border}`, display: "flex", padding: "6px 0 10px", flexShrink: 0 }}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{ flex: 1, background: "none", border: "none", cursor: "pointer", padding: "4px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
+              <span style={{ fontSize: 20 }}>{t.icon}</span>
+              <span style={{ ...sans(10, tab === t.id ? 700 : 400, tab === t.id ? C.primary : C.muted) }}>{t.label}</span>
+              {tab === t.id && <div style={{ width: 4, height: 4, borderRadius: "50%", background: C.primary }} />}
             </button>
-          </div>
-        )}
-
-        {/* Survey options */}
-        {phase === "survey" && currentQ && !typing && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
-            {currentQ.options.map(opt => (
-              <button key={opt} onClick={() => answerQuestion(opt)} style={{ padding: "12px 18px", borderRadius: 12, border: `1.5px solid ${COLORS.border}`, background: COLORS.card, fontFamily: "'DM Sans', sans-serif", fontWeight: 500, fontSize: 14, color: COLORS.text, cursor: "pointer", textAlign: "left" }}>
-                {opt}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* Result + booking CTA */}
-        {phase === "result" && !typing && sc && (
-          <div style={{ marginTop: 8 }}>
-            {sc.result.urgency === "high" && (
-              <Card style={{ background: "#FFEBEE", border: "1.5px solid #EF9A9A", marginBottom: 10 }}>
-                <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 700, color: "#C62828", fontSize: 14 }}>⚠️ Требует внимания</div>
-                <div style={{ fontFamily: "'DM Sans', sans-serif", color: "#C62828", fontSize: 13, marginTop: 4 }}>При острой боли — вызовите скорую (103)</div>
-              </Card>
-            )}
-            <Card style={{ background: COLORS.primaryLight, border: `1.5px solid ${COLORS.primary}33` }}>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 700, color: COLORS.text, fontSize: 14, marginBottom: 4 }}>Рекомендуем специалиста</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                <span style={{ fontSize: 24 }}>{DOCTORS.find(d => d.id === sc.result.doctorId)?.emoji || "👨‍⚕️"}</span>
-                <div>
-                  <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{DOCTORS.find(d => d.id === sc.result.doctor)?.name}</div>
-                  <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.primary, fontSize: 12 }}>{sc.result.specialty}</div>
-                </div>
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <Btn onClick={() => navigate("appointment")} style={{ flex: 1, fontSize: 13, padding: "10px 12px" }}>📅 Записаться</Btn>
-                <Btn onClick={() => navigate("consult")} variant="outline" style={{ flex: 1, fontSize: 13, padding: "10px 12px" }}>💬 Онлайн</Btn>
-              </div>
-            </Card>
-          </div>
-        )}
-      </div>
-
-      <style>{`@keyframes pulse { 0%,100%{opacity:0.3} 50%{opacity:1} }`}</style>
+          ))}
+        </div>
+      </>}
     </div>
   );
 }
 
-// ── MY DOCTORS ────────────────────────────────────────────────────────────────
-
-function MyDoctorsScreen({ navigate }) {
-  const [selected, setSelected] = useState(null);
-  const [input, setInput] = useState("");
-  const [extraMessages, setExtraMessages] = useState([]);
-  const [sending, setSending] = useState(false);
-
-  if (selected) {
-    const rec = MY_DOCTORS_DATA.find(r => r.id === selected);
-    const doc = DOCTORS.find(d => d.id === rec.doctorId);
-    const allMessages = [...rec.history, ...extraMessages];
-
-    const send = () => {
-      if (!input.trim()) return;
-      setExtraMessages(m => [...m, { from: "me", text: input.trim(), time: new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }), date: "сегодня" }]);
-      setInput("");
-      setSending(true);
-      setTimeout(() => {
-        setExtraMessages(m => [...m, { from: "doctor", text: "Спасибо за вопрос. Отвечу в ближайшее время в рабочие часы.", time: new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" }), date: "сегодня" }]);
-        setSending(false);
-      }, 1400);
-    };
-
-    return (
-      <div style={{ height: "100%", background: COLORS.bg, display: "flex", flexDirection: "column" }}>
-        <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", background: COLORS.card, borderBottom: `1px solid ${COLORS.border}`, gap: 12, flexShrink: 0 }}>
-          <button onClick={() => { setSelected(null); setExtraMessages([]); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: COLORS.primary }}>←</button>
-          <div style={{ width: 38, height: 38, borderRadius: "50%", background: COLORS.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{doc.emoji}</div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{doc.name}</div>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 12 }}>{doc.specialty}</div>
+function PatientHome({ profile, appointments, doctors, onBook, onLogout }) {
+  const upcoming = appointments.find(a => a.status === "confirmed");
+  return (
+    <div>
+      <div style={{ background: `linear-gradient(135deg, ${C.primaryDark}, ${C.primary})`, padding: "24px 20px 28px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+          <div>
+            <div style={{ ...sans(11, 600, "rgba(255,255,255,0.6)"), letterSpacing: 1, textTransform: "uppercase", marginBottom: 2 }}>MedBridge · Моя карта</div>
+            <div style={{ ...serif(22, "#fff") }}>{profile.name}</div>
           </div>
-          {rec.status === "active" && <Badge color="green">Активно</Badge>}
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            {profile.photoURL
+              ? <img src={profile.photoURL} style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover", border: "2px solid rgba(255,255,255,0.4)" }} />
+              : <div style={{ width: 44, height: 44, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🧑</div>
+            }
+            <button onClick={onLogout} style={{ background: "rgba(255,255,255,0.15)", border: "none", borderRadius: 8, padding: "6px 10px", ...sans(11, 500, "#fff"), cursor: "pointer" }}>Выйти</button>
+          </div>
         </div>
-
-        <div style={{ flex: 1, overflowY: "auto", padding: "12px 16px", display: "flex", flexDirection: "column", gap: 8 }}>
-          {/* Date divider */}
-          <div style={{ textAlign: "center", fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: COLORS.textMuted, padding: "4px 0" }}>— История переписки —</div>
-
-          {allMessages.map((m, i) => (
-            <div key={i}>
-              {i > 0 && allMessages[i-1].date !== m.date && (
-                <div style={{ textAlign: "center", fontFamily: "'DM Sans', sans-serif", fontSize: 11, color: COLORS.textMuted, padding: "6px 0" }}>— {m.date} —</div>
-              )}
-              <div style={{ display: "flex", justifyContent: m.from === "me" ? "flex-end" : "flex-start" }}>
-                <div style={{ maxWidth: "78%", padding: "10px 14px", borderRadius: m.from === "me" ? "16px 16px 4px 16px" : "16px 16px 16px 4px", background: m.from === "me" ? COLORS.primary : COLORS.card, color: m.from === "me" ? "#fff" : COLORS.text, fontFamily: "'DM Sans', sans-serif", fontSize: 14, lineHeight: 1.5, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
-                  {m.text}
-                  <div style={{ fontSize: 10, opacity: 0.6, marginTop: 4, textAlign: "right" }}>{m.time}</div>
-                </div>
-              </div>
-            </div>
-          ))}
-          {sending && (
-            <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, fontStyle: "italic", paddingLeft: 4 }}>врач печатает...</div>
-          )}
-        </div>
-
-        {rec.status === "active" ? (
-          <div style={{ padding: "10px 12px", background: COLORS.card, borderTop: `1px solid ${COLORS.border}`, display: "flex", gap: 8, flexShrink: 0 }}>
-            <input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder="Написать врачу..." style={{ flex: 1, padding: "11px 16px", borderRadius: 24, border: `1.5px solid ${COLORS.border}`, fontFamily: "'DM Sans', sans-serif", fontSize: 14, outline: "none", background: COLORS.bg }} />
-            <button onClick={send} style={{ width: 44, height: 44, borderRadius: "50%", background: COLORS.primary, border: "none", cursor: "pointer", fontSize: 18 }}>↑</button>
-          </div>
-        ) : (
-          <div style={{ padding: "12px 16px", background: COLORS.card, borderTop: `1px solid ${COLORS.border}`, textAlign: "center", flexShrink: 0 }}>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, marginBottom: 10 }}>Консультация завершена. Записаться снова?</div>
-            <Btn onClick={() => navigate("appointment")} style={{ width: "100%" }} variant="ghost">📅 Записаться повторно</Btn>
-          </div>
-        )}
       </div>
-    );
-  }
+      <div style={{ padding: "16px 16px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
+        {upcoming && (
+          <Card style={{ background: C.primaryLight, border: `1.5px solid ${C.primary}22` }}>
+            <div style={{ ...sans(11, 600, C.muted), letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 6 }}>Ближайший приём</div>
+            <div style={{ ...sans(15, 600), marginBottom: 2 }}>{doctors.find(d => d.id === upcoming.doctorId)?.name}</div>
+            <div style={{ ...sans(13, 500, C.primary) }}>🗓 {upcoming.chosenSlot}</div>
+          </Card>
+        )}
+        <div style={{ ...sans(14, 600), marginBottom: 4 }}>Специалисты</div>
+        {doctors.slice(0, 3).map(d => <DoctorCard key={d.id} doctor={d} onBook={() => onBook(d)} />)}
+      </div>
+    </div>
+  );
+}
+
+function DoctorCard({ doctor: d, onBook }) {
+  const dp = d.doctorProfile;
+  return (
+    <Card>
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+        {d.photoURL
+          ? <img src={d.photoURL} style={{ width: 52, height: 52, borderRadius: 14, objectFit: "cover", flexShrink: 0 }} />
+          : <div style={{ width: 52, height: 52, borderRadius: 14, background: C.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, flexShrink: 0 }}>👨‍⚕️</div>
+        }
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ ...sans(14, 600), marginBottom: 2 }}>{d.name}</div>
+          <div style={{ ...sans(12, 500, C.primary), marginBottom: 6 }}>{dp.specialty} · {dp.experience} лет стажа</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+            {dp.services?.some(s => s.type === "online")  && <Badge color="teal">Онлайн</Badge>}
+            {dp.services?.some(s => s.type === "offline") && <Badge color="orange">Офлайн</Badge>}
+            {dp.rating && <Badge color="green">⭐ {dp.rating}</Badge>}
+          </div>
+          {dp.services?.length > 0 && <div style={{ ...sans(12, 400, C.muted), marginBottom: 8 }}>от {Math.min(...dp.services.map(s => s.price)).toLocaleString("ru-RU")} ₽</div>}
+          <Btn onClick={onBook} small style={{ width: "100%" }}>Записаться</Btn>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+function PatientFiles({ files, onAddFile }) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [name, setName] = useState("");
+  const [comment, setComment] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().split("T")[0]);
+  const [fileBase64, setFileBase64] = useState(null);
+  const [fileName, setFileName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const fileRef = useRef();
+
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = ev => setFileBase64(ev.target.result);
+    reader.readAsDataURL(file);
+  };
+
+  const save = async () => {
+    if (!name) return;
+    setSaving(true);
+    await onAddFile({ name, comment, date, fileBase64, fileName });
+    setSaving(false);
+    setShowAdd(false); setName(""); setComment(""); setFileBase64(null); setFileName("");
+    setDate(new Date().toISOString().split("T")[0]);
+  };
 
   return (
-    <div style={{ minHeight: "100%", background: COLORS.bg }}>
-      <TopBar title="Мои врачи" onBack={() => navigate("home")} />
-      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 10 }}>
-        <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, marginBottom: 4, lineHeight: 1.6 }}>
-          История консультаций и переписка с врачами
+    <div style={{ minHeight: "100%" }}>
+      <TopBar title="Мои файлы" right={<Btn onClick={() => setShowAdd(true)} small variant="ghost">+ Добавить</Btn>} />
+      {showAdd && (
+        <div style={{ padding: 16 }}>
+          <Card>
+            <div style={{ ...serif(18), marginBottom: 16 }}>Новый файл</div>
+            <Input label="Название" value={name} onChange={setName} placeholder="Анализ крови март 2025" required />
+            <Input label="Дата (примерная)" type="date" value={date} onChange={setDate} />
+            <Textarea label="Комментарий" value={comment} onChange={setComment} placeholder="Краткое описание..." rows={2} />
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ ...sans(13, 600), marginBottom: 6 }}>Файл или фото</div>
+              <div onClick={() => fileRef.current.click()} style={{ padding: 16, borderRadius: 12, border: `2px dashed ${C.border}`, textAlign: "center", cursor: "pointer", background: C.primaryLight }}>
+                {fileBase64
+                  ? fileBase64.startsWith("data:image") ? <img src={fileBase64} style={{ maxHeight: 120, borderRadius: 8 }} /> : <div style={{ ...sans(13, 500, C.primary) }}>📄 {fileName}</div>
+                  : <div style={{ ...sans(13, 400, C.muted) }}>📎 Нажмите для загрузки</div>
+                }
+              </div>
+              <input ref={fileRef} type="file" accept="image/*,.pdf" style={{ display: "none" }} onChange={handleFile} />
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <Btn onClick={() => setShowAdd(false)} variant="outline" style={{ flex: 1 }}>Отмена</Btn>
+              <Btn onClick={save} disabled={!name || saving} style={{ flex: 1 }}>{saving ? "Загрузка..." : "Сохранить"}</Btn>
+            </div>
+          </Card>
         </div>
-        {MY_DOCTORS_DATA.map(rec => {
-          const doc = DOCTORS.find(d => d.id === rec.doctorId);
-          const lastMsg = rec.history[rec.history.length - 1];
+      )}
+      <div style={{ padding: "16px 16px 24px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {files.length === 0 && !showAdd && (
+          <div style={{ textAlign: "center", padding: "48px 0", ...sans(14, 400, C.muted) }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>📂</div>
+            Файлов пока нет.<br />Загрузите первый анализ.
+          </div>
+        )}
+        {files.map(f => (
+          <Card key={f.id}>
+            <div style={{ display: "flex", gap: 12 }}>
+              <div style={{ width: 44, height: 44, borderRadius: 12, background: f.fileType === "image" ? "#E3F2FD" : C.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>
+                {f.fileType === "image" ? "🖼️" : "📄"}
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ ...sans(14, 600), marginBottom: 2 }}>{f.name}</div>
+                <div style={{ ...sans(12, 400, C.muted), marginBottom: f.comment ? 4 : 0 }}>{f.date}</div>
+                {f.comment && <div style={{ ...sans(12, 400, C.muted) }}>{f.comment}</div>}
+                {f.fileURL && f.fileType === "image" && (
+                  <img src={f.fileURL} style={{ marginTop: 8, maxWidth: "100%", borderRadius: 8, maxHeight: 160, objectFit: "cover" }} />
+                )}
+                {f.fileURL && f.fileType !== "image" && (
+                  <a href={f.fileURL} target="_blank" rel="noreferrer" style={{ ...sans(12, 600, C.primary), display: "inline-block", marginTop: 6 }}>📥 Открыть файл</a>
+                )}
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PatientAccess({ profile, onGrantAccess }) {
+  const [search, setSearch]     = useState("");
+  const [doctors, setDoctors]   = useState([]);
+  const [loading, setLoading]   = useState(false);
+  const [granted, setGranted]   = useState(profile.card?.accessGranted || []);
+
+  useEffect(() => {
+    setLoading(true);
+    searchDoctors("").then(d => { setDoctors(d); setLoading(false); });
+  }, []);
+
+  useEffect(() => {
+    if (!search) { searchDoctors("").then(setDoctors); return; }
+    const t = setTimeout(() => searchDoctors(search).then(setDoctors), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const toggle = async (doctorId) => {
+    const give = !granted.includes(doctorId);
+    setGranted(g => give ? [...g, doctorId] : g.filter(x => x !== doctorId));
+    await onGrantAccess(doctorId);
+  };
+
+  return (
+    <div style={{ minHeight: "100%" }}>
+      <TopBar title="Доступ к карте" />
+      <div style={{ padding: "16px 16px 24px" }}>
+        <div style={{ ...sans(13, 400, C.muted), lineHeight: 1.6, marginBottom: 16 }}>
+          Разрешите врачу просматривать вашу карту и файлы анализов.
+        </div>
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="🔍  Поиск по имени или специальности..."
+          style={{ width: "100%", padding: "11px 14px", borderRadius: 12, border: `1.5px solid ${C.border}`, ...sans(14), outline: "none", boxSizing: "border-box", marginBottom: 14 }}
+        />
+        {loading ? <Spinner /> : doctors.map(d => {
+          const hasAccess = granted.includes(d.id);
           return (
-            <Card key={rec.id} onClick={() => setSelected(rec.id)}>
-              <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-                <div style={{ position: "relative", flexShrink: 0 }}>
-                  <div style={{ width: 48, height: 48, borderRadius: "50%", background: COLORS.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>{doc.emoji}</div>
-                  {rec.status === "active" && <div style={{ position: "absolute", bottom: 1, right: 1, width: 12, height: 12, borderRadius: "50%", background: COLORS.success, border: "2px solid #fff" }} />}
+            <Card key={d.id} style={{ marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {d.photoURL
+                  ? <img src={d.photoURL} style={{ width: 48, height: 48, borderRadius: 14, objectFit: "cover", flexShrink: 0 }} />
+                  : <div style={{ width: 48, height: 48, borderRadius: 14, background: C.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, flexShrink: 0 }}>👨‍⚕️</div>
+                }
+                <div style={{ flex: 1 }}>
+                  <div style={{ ...sans(14, 600), marginBottom: 2 }}>{d.name}</div>
+                  <div style={{ ...sans(12, 400, C.muted) }}>{d.doctorProfile?.specialty}</div>
                 </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 2 }}>
-                    <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14 }}>{doc.name}</div>
-                    <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 11, flexShrink: 0, marginLeft: 8 }}>{rec.lastVisit}</div>
-                  </div>
-                  <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.primary, fontSize: 12, marginBottom: 4 }}>{doc.specialty}</div>
-                  <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {lastMsg.from === "doctor" ? "👨‍⚕️ " : "Вы: "}{lastMsg.text}
-                  </div>
-                </div>
+                <button onClick={() => toggle(d.id)} style={{ padding: "8px 14px", borderRadius: 10, border: `1.5px solid ${hasAccess ? C.danger : C.primary}`, background: hasAccess ? "#FFEBEE" : C.primaryLight, ...sans(12, 600, hasAccess ? C.danger : C.primary), cursor: "pointer" }}>
+                  {hasAccess ? "Закрыть" : "Открыть"}
+                </button>
               </div>
-              <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${COLORS.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <Badge color={rec.status === "active" ? "green" : "gray"}>{rec.status === "active" ? "Активная консультация" : "Завершено"}</Badge>
-                {rec.nextVisit && <div style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 12, color: COLORS.primary, fontWeight: 600 }}>Приём: {rec.nextVisit}</div>}
-              </div>
+              {hasAccess && <div style={{ marginTop: 8, ...sans(11, 500, C.success) }}>✓ Доступ открыт</div>}
             </Card>
           );
         })}
@@ -1162,286 +583,394 @@ function MyDoctorsScreen({ navigate }) {
   );
 }
 
-// ── AUTH & ROLE SCREEN ───────────────────────────────────────────────────────
+function PatientBook({ doctors, onBook }) {
+  return (
+    <div style={{ minHeight: "100%" }}>
+      <TopBar title="Запись к врачу" />
+      <div style={{ padding: "16px 16px 24px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {doctors.map(d => <DoctorCard key={d.id} doctor={d} onBook={() => onBook(d)} />)}
+      </div>
+    </div>
+  );
+}
 
-function AuthScreen({ onAuth }) {
-  const [step, setStep] = useState("role"); // role | confirm
-  const [role, setRole] = useState(null);
+// ─── BOOKING FLOW ─────────────────────────────────────────────────────────────
+function BookScreen({ doctor, profile, onBack, onCreate }) {
+  const [step, setStep]             = useState(1);
+  const [window_, setWindow]         = useState("");
+  const [half, setHalf]             = useState("");
+  const [selectedService, setSelectedService] = useState(null);
+  const [paymentOk, setPaymentOk]   = useState(false);
+  const [loading, setLoading]       = useState(false);
+  const dp = doctor.doctorProfile;
 
-  // Get Telegram user data
-  const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-  const userName = tgUser?.first_name || "Пользователь";
-  const userLastName = tgUser?.last_name || "";
-  const userPhoto = tgUser?.photo_url || null;
-  const fullName = `${userName} ${userLastName}`.trim();
-
-  const handleSelect = (r) => {
-    setRole(r);
-    setStep("confirm");
+  const handleSend = async () => {
+    setLoading(true);
+    await onCreate({ doctorId: doctor.id, requestedWindow: window_, preferredHalf: half, selectedService, paymentApproved: paymentOk, doctorSlots: [], chosenSlot: null });
+    setLoading(false);
+    setStep(3);
   };
 
-  const handleConfirm = () => {
-    onAuth({ name: fullName, photo: userPhoto, role, telegramId: tgUser?.id || "demo" });
-  };
+  if (step === 3) return (
+    <div style={{ minHeight: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
+      <div style={{ fontSize: 64, marginBottom: 16 }}>📨</div>
+      <div style={{ ...serif(24), marginBottom: 10 }}>Запрос отправлен!</div>
+      <div style={{ ...sans(14, 400, C.muted), lineHeight: 1.6, maxWidth: 280, marginBottom: 24 }}>Врач {doctor.name} получил запрос и предложит подходящее время.</div>
+      <Btn onClick={onBack} variant="ghost">← Назад</Btn>
+    </div>
+  );
 
   return (
-    <div style={{ minHeight: "100%", background: COLORS.bg, display: "flex", flexDirection: "column" }}>
-      {/* Header */}
-      <div style={{ background: `linear-gradient(135deg, ${COLORS.primaryDark} 0%, ${COLORS.primary} 100%)`, padding: "40px 24px 32px", position: "relative", overflow: "hidden" }}>
-        <div style={{ position: "absolute", top: -40, right: -40, width: 200, height: 200, borderRadius: "50%", background: "rgba(255,255,255,0.05)" }} />
-        <div style={{ position: "absolute", bottom: -20, left: -20, width: 120, height: 120, borderRadius: "50%", background: "rgba(255,255,255,0.04)" }} />
-        <div style={{ textAlign: "center", position: "relative" }}>
-          {/* Avatar */}
-          <div style={{ width: 72, height: 72, borderRadius: "50%", background: "rgba(255,255,255,0.2)", margin: "0 auto 12px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, border: "3px solid rgba(255,255,255,0.3)", overflow: "hidden" }}>
-            {userPhoto ? <img src={userPhoto} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "👤"}
+    <div style={{ minHeight: "100%", background: C.bg }}>
+      <TopBar title="Запись на приём" onBack={onBack} right={<span style={{ ...sans(12, 400, C.muted) }}>{step}/2</span>} />
+      <div style={{ height: 4, background: C.border }}><div style={{ height: "100%", background: C.primary, width: `${step * 50}%`, transition: "width 0.3s" }} /></div>
+      <div style={{ padding: 16 }}>
+        {step === 1 && (
+          <div>
+            <div style={{ display: "flex", gap: 12, marginBottom: 20, alignItems: "center" }}>
+              {doctor.photoURL ? <img src={doctor.photoURL} style={{ width: 52, height: 52, borderRadius: 14, objectFit: "cover" }} /> : <div style={{ width: 52, height: 52, borderRadius: 14, background: C.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26 }}>👨‍⚕️</div>}
+              <div><div style={{ ...sans(15, 600) }}>{doctor.name}</div><div style={{ ...sans(12, 400, C.primary) }}>{dp.specialty}</div></div>
+            </div>
+            <div style={{ ...serif(18), marginBottom: 12 }}>Когда вам удобно?</div>
+            {["Ближайшие 2 дня","На этой неделе","В течение месяца","В течение 2 месяцев"].map(w => (
+              <button key={w} onClick={() => setWindow(w)} style={{ width: "100%", marginBottom: 8, padding: "13px 16px", borderRadius: 12, textAlign: "left", cursor: "pointer", border: `1.5px solid ${window_ === w ? C.primary : C.border}`, background: window_ === w ? C.primaryLight : "#fff", ...sans(14, window_ === w ? 600 : 400, window_ === w ? C.primary : C.text) }}>{w}</button>
+            ))}
+            <div style={{ ...serif(18), marginBottom: 12, marginTop: 8 }}>Предпочтительное время</div>
+            <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
+              {[["Первая половина дня","🌅 Утро","09:00–13:00"],["Вторая половина дня","🌆 Вечер","13:00–20:00"]].map(([key, label, time]) => (
+                <button key={key} onClick={() => setHalf(key)} style={{ flex: 1, padding: "12px 8px", borderRadius: 12, cursor: "pointer", border: `1.5px solid ${half === key ? C.primary : C.border}`, background: half === key ? C.primaryLight : "#fff", ...sans(13, half === key ? 600 : 400, half === key ? C.primary : C.text) }}>
+                  {label}<br /><span style={{ fontSize: 11, color: C.muted }}>{time}</span>
+                </button>
+              ))}
+            </div>
+            <Btn onClick={() => setStep(2)} disabled={!window_ || !half} style={{ width: "100%" }}>Далее →</Btn>
           </div>
-          <div style={{ fontFamily: "'DM Sans', sans-serif", color: "rgba(255,255,255,0.8)", fontSize: 13, marginBottom: 4 }}>Добро пожаловать</div>
-          <div style={{ fontFamily: "'Instrument Serif', serif", color: "#fff", fontSize: 22 }}>{fullName}</div>
+        )}
+        {step === 2 && (
+          <div>
+            <div style={{ ...serif(18), marginBottom: 12 }}>Услуга</div>
+            {dp.services?.map((s, i) => (
+              <button key={i} onClick={() => setSelectedService(s)} style={{ width: "100%", marginBottom: 8, padding: "13px 16px", borderRadius: 12, textAlign: "left", cursor: "pointer", border: `1.5px solid ${selectedService === s ? C.primary : C.border}`, background: selectedService === s ? C.primaryLight : "#fff", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div><div style={{ ...sans(14, 600, selectedService === s ? C.primary : C.text) }}>{s.name}</div><div style={{ ...sans(12, 400, C.muted) }}>{s.type === "online" ? "💬 Онлайн" : "🏥 Офлайн"}</div></div>
+                <div style={{ ...sans(15, 700, C.primary) }}>{s.price?.toLocaleString("ru-RU")} ₽</div>
+              </button>
+            ))}
+            <div style={{ ...serif(18), marginBottom: 10, marginTop: 16 }}>Оплата</div>
+            <Card style={{ marginBottom: 16 }}>
+              {dp.payment?.map((p, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: i < dp.payment.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                  <span style={{ fontSize: 18 }}>💳</span><span style={{ ...sans(13, 500) }}>{p}</span>
+                </div>
+              ))}
+            </Card>
+            <div onClick={() => setPaymentOk(!paymentOk)} style={{ display: "flex", gap: 12, alignItems: "center", cursor: "pointer", padding: "14px 16px", borderRadius: 12, border: `1.5px solid ${paymentOk ? C.primary : C.border}`, background: paymentOk ? C.primaryLight : "#fff", marginBottom: 20 }}>
+              <div style={{ width: 22, height: 22, borderRadius: 6, border: `2px solid ${paymentOk ? C.primary : C.border}`, background: paymentOk ? C.primary : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                {paymentOk && <span style={{ color: "#fff", fontSize: 13, fontWeight: 700 }}>✓</span>}
+              </div>
+              <span style={{ ...sans(13, 500, paymentOk ? C.primary : C.text) }}>Способ оплаты мне подходит</span>
+            </div>
+            <Btn onClick={handleSend} disabled={!selectedService || !paymentOk || loading} style={{ width: "100%" }}>
+              {loading ? "Отправляем..." : "Отправить запрос врачу"}
+            </Btn>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── DOCTOR APP ───────────────────────────────────────────────────────────────
+function DoctorApp({ profile, currentUser, logout }) {
+  const [tab, setTab]               = useState("home");
+  const [appointments, setAppointments] = useState([]);
+  const [allUsers, setAllUsers]     = useState({});
+
+  useEffect(() => {
+    const unsub = subscribeDoctorAppointments(currentUser.uid, async (appts) => {
+      setAppointments(appts);
+      // Подгрузить данные пациентов
+      const ids = [...new Set(appts.map(a => a.patientId))];
+      for (const id of ids) {
+        if (!allUsers[id]) {
+          const { getDoc, doc } = await import("firebase/firestore");
+          const { db } = await import("./firebase");
+          const snap = await getDoc(doc(db, "users", id));
+          if (snap.exists()) setAllUsers(u => ({ ...u, [id]: { id, ...snap.data() } }));
+        }
+      }
+    });
+    return unsub;
+  }, [currentUser.uid]);
+
+  const dp = profile.doctorProfile;
+  const pending = appointments.filter(a => a.status === "pending");
+
+  if (!dp?.verified) {
+    return (
+      <div style={{ minHeight: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24, textAlign: "center" }}>
+        <div style={{ fontSize: 56, marginBottom: 16 }}>🔍</div>
+        <div style={{ ...sans(12, 700, C.primary), letterSpacing: 1, textTransform: "uppercase", marginBottom: 6 }}>MedBridge Pro</div>
+        <div style={{ ...serif(24), marginBottom: 10 }}>Профиль на верификации</div>
+        <div style={{ ...sans(14, 400, C.muted), lineHeight: 1.6, maxWidth: 280, marginBottom: 24 }}>Документы проверяются администратором. После подтверждения профиль будет опубликован (1–3 дня).</div>
+        <Btn onClick={logout} variant="outline">Выйти</Btn>
+      </div>
+    );
+  }
+
+  const TABS = [
+    { id: "home",     icon: "🏠", label: "Главная" },
+    { id: "requests", icon: "📋", label: "Запросы" },
+    { id: "profile",  icon: "👤", label: "Профиль" },
+  ];
+
+  return (
+    <div style={{ minHeight: "100%", display: "flex", flexDirection: "column" }}>
+      <div style={{ flex: 1, overflowY: "auto" }}>
+        {tab === "home"     && <DoctorHome profile={profile} appointments={appointments} allUsers={allUsers} onLogout={logout} />}
+        {tab === "requests" && <DoctorRequests profile={profile} currentUser={currentUser} appointments={appointments} allUsers={allUsers} />}
+        {tab === "profile"  && <DoctorProfile profile={profile} onLogout={logout} />}
+      </div>
+      <div style={{ background: C.card, borderTop: `1px solid ${C.border}`, display: "flex", padding: "6px 0 10px", flexShrink: 0 }}>
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} style={{ flex: 1, background: "none", border: "none", cursor: "pointer", padding: "4px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, position: "relative" }}>
+            <span style={{ fontSize: 20 }}>{t.icon}</span>
+            {t.id === "requests" && pending.length > 0 && <span style={{ position: "absolute", top: 0, right: "20%", background: C.danger, color: "#fff", borderRadius: "50%", width: 16, height: 16, fontSize: 9, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700 }}>{pending.length}</span>}
+            <span style={{ ...sans(10, tab === t.id ? 700 : 400, tab === t.id ? C.primary : C.muted) }}>{t.label}</span>
+            {tab === t.id && <div style={{ width: 4, height: 4, borderRadius: "50%", background: C.primary }} />}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DoctorHome({ profile, appointments, allUsers, onLogout }) {
+  const confirmed = appointments.filter(a => a.status === "confirmed");
+  const dp = profile.doctorProfile;
+  return (
+    <div>
+      <div style={{ background: `linear-gradient(135deg, ${C.primaryDark}, ${C.primary})`, padding: "24px 20px 28px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ ...sans(11, 600, "rgba(255,255,255,0.6)"), letterSpacing: 1, textTransform: "uppercase", marginBottom: 2 }}>MedBridge Pro · Кабинет врача</div>
+            <div style={{ ...serif(20, "#fff"), marginBottom: 2 }}>{profile.name}</div>
+            <div style={{ ...sans(13, 500, "rgba(255,255,255,0.8)") }}>{dp.specialty} · {dp.experience} лет</div>
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            {profile.photoURL ? <img src={profile.photoURL} style={{ width: 48, height: 48, borderRadius: "50%", objectFit: "cover", border: "2px solid rgba(255,255,255,0.4)" }} /> : <div style={{ width: 48, height: 48, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24 }}>👨‍⚕️</div>}
+            <button onClick={onLogout} style={{ background: "rgba(255,255,255,0.15)", border: "none", borderRadius: 8, padding: "6px 10px", ...sans(11, 500, "#fff"), cursor: "pointer" }}>Выйти</button>
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+          {[["📋", confirmed.length, "Записей"],["⭐", dp.rating || "—", "Рейтинг"],["💬", dp.reviewCount, "Отзывов"]].map(([icon, val, label]) => (
+            <div key={label} style={{ flex: 1, background: "rgba(255,255,255,0.15)", borderRadius: 12, padding: 12 }}>
+              <div style={{ ...sans(20, 700, "#fff") }}>{val}</div>
+              <div style={{ ...sans(11, 400, "rgba(255,255,255,0.75)") }}>{label}</div>
+            </div>
+          ))}
         </div>
       </div>
-
-      <div style={{ flex: 1, padding: "28px 20px" }}>
-        {step === "role" && (
-          <>
-            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 22, color: COLORS.text, marginBottom: 6, textAlign: "center" }}>Кто вы?</div>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, textAlign: "center", marginBottom: 28, lineHeight: 1.6 }}>
-              Выберите роль — интерфейс подстроится под вас
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {/* Patient */}
-              <div onClick={() => handleSelect("patient")} style={{ background: "#fff", borderRadius: 20, padding: "22px 20px", border: `2px solid ${COLORS.border}`, cursor: "pointer", transition: "all 0.15s", boxShadow: "0 2px 12px rgba(42,122,111,0.07)" }}
-                onMouseEnter={e => { e.currentTarget.style.border = `2px solid ${COLORS.primary}`; e.currentTarget.style.transform = "translateY(-2px)"; }}
-                onMouseLeave={e => { e.currentTarget.style.border = `2px solid ${COLORS.border}`; e.currentTarget.style.transform = "translateY(0)"; }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                  <div style={{ width: 56, height: 56, borderRadius: 18, background: COLORS.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, flexShrink: 0 }}>🙋</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 700, color: COLORS.text, fontSize: 17, marginBottom: 4 }}>Я пациент</div>
-                    <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, lineHeight: 1.5 }}>Записаться к врачу, смотреть результаты анализов, получать рецепты</div>
-                  </div>
-                  <span style={{ color: COLORS.primary, fontSize: 20 }}>›</span>
+      <div style={{ padding: "16px 16px 24px", display: "flex", flexDirection: "column", gap: 12 }}>
+        {confirmed.length > 0 && <>
+          <div style={{ ...sans(14, 600) }}>Ближайшие приёмы</div>
+          {confirmed.slice(0, 3).map(a => {
+            const patient = allUsers[a.patientId];
+            return (
+              <Card key={a.id}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ width: 42, height: 42, borderRadius: 12, background: C.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🧑</div>
+                  <div style={{ flex: 1 }}><div style={{ ...sans(13, 600) }}>{patient?.name || "Пациент"}</div><div style={{ ...sans(12, 400, C.muted) }}>🗓 {a.chosenSlot}</div></div>
+                  <Badge color="green">Подтверждено</Badge>
                 </div>
-              </div>
-
-              {/* Doctor */}
-              <div onClick={() => handleSelect("doctor")} style={{ background: "#fff", borderRadius: 20, padding: "22px 20px", border: `2px solid ${COLORS.border}`, cursor: "pointer", transition: "all 0.15s", boxShadow: "0 2px 12px rgba(42,122,111,0.07)" }}
-                onMouseEnter={e => { e.currentTarget.style.border = `2px solid #E65100`; e.currentTarget.style.transform = "translateY(-2px)"; }}
-                onMouseLeave={e => { e.currentTarget.style.border = `2px solid ${COLORS.border}`; e.currentTarget.style.transform = "translateY(0)"; }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                  <div style={{ width: 56, height: 56, borderRadius: 18, background: "#FFF3E0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28, flexShrink: 0 }}>👨‍⚕️</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 700, color: COLORS.text, fontSize: 17, marginBottom: 4 }}>Я врач</div>
-                    <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, lineHeight: 1.5 }}>Управлять расписанием, вести пациентов, выписывать рецепты</div>
-                  </div>
-                  <span style={{ color: "#E65100", fontSize: 20 }}>›</span>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {step === "confirm" && (
-          <div style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 56, marginBottom: 16 }}>{role === "patient" ? "🙋" : "👨‍⚕️"}</div>
-            <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 22, color: COLORS.text, marginBottom: 8 }}>
-              {role === "patient" ? "Входите как пациент" : "Входите как врач"}
-            </div>
-            <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 14, marginBottom: 32, lineHeight: 1.6 }}>
-              Аккаунт привязан к вашему Telegram.<br />Роль можно изменить в профиле.
-            </div>
-            <Btn onClick={handleConfirm} style={{ width: "100%", padding: "14px", fontSize: 16, marginBottom: 12 }}>
-              Войти →
-            </Btn>
-            <button onClick={() => setStep("role")} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, textDecoration: "underline" }}>
-              Назад к выбору роли
-            </button>
-          </div>
-        )}
+              </Card>
+            );
+          })}
+        </>}
+        {confirmed.length === 0 && <div style={{ textAlign: "center", padding: "32px 0", ...sans(14, 400, C.muted) }}><div style={{ fontSize: 36, marginBottom: 10 }}>📋</div>Подтверждённых записей нет</div>}
       </div>
     </div>
   );
 }
 
-// ── PROFILE SCREEN ────────────────────────────────────────────────────────────
+function DoctorRequests({ profile, currentUser, appointments, allUsers }) {
+  const [selected, setSelected] = useState(null);
+  const [slots, setSlots]       = useState(["", "", ""]);
+  const [saving, setSaving]     = useState(false);
+  const pending  = appointments.filter(a => a.status === "pending");
+  const offered  = appointments.filter(a => a.status === "offered");
 
-function ProfileScreen({ user, onSwitchRole, onLogout, navigate }) {
-  const [switching, setSwitching] = useState(false);
-
-  const handleSwitch = (newRole) => {
-    onSwitchRole(newRole);
-    setSwitching(false);
+  const sendOffer = async () => {
+    const filled = slots.filter(s => s.trim());
+    if (!filled.length) return;
+    setSaving(true);
+    await updateAppointment(selected, { status: "offered", doctorSlots: filled });
+    setSaving(false);
+    setSelected(null); setSlots(["", "", ""]);
   };
+
+  if (selected) {
+    const appt = appointments.find(a => a.id === selected);
+    const patient = allUsers[appt?.patientId];
+    return (
+      <div style={{ minHeight: "100%", background: C.bg }}>
+        <TopBar title="Запрос пациента" onBack={() => setSelected(null)} />
+        <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+          <Card>
+            <div style={{ ...sans(11, 600, C.muted), letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>Пациент</div>
+            <div style={{ ...sans(15, 600), marginBottom: 2 }}>{patient?.name || "—"}</div>
+          </Card>
+          <Card>
+            <div style={{ ...sans(11, 600, C.muted), letterSpacing: 0.5, textTransform: "uppercase", marginBottom: 8 }}>Пожелания</div>
+            <div style={{ ...sans(13, 500), marginBottom: 4 }}>📅 {appt?.requestedWindow}</div>
+            <div style={{ ...sans(13, 500), marginBottom: 4 }}>🕐 {appt?.preferredHalf}</div>
+            {appt?.selectedService && <div style={{ ...sans(13, 500) }}>🩺 {appt.selectedService.name}</div>}
+          </Card>
+          <Card>
+            <div style={{ ...serif(16), marginBottom: 12 }}>Предложите 2–3 варианта времени</div>
+            {slots.map((s, i) => (
+              <input key={i} value={s} onChange={e => setSlots(sl => sl.map((x, j) => j === i ? e.target.value : x))}
+                placeholder={`Вариант ${i + 1}: напр. 15 мар, 10:00`}
+                style={{ width: "100%", marginBottom: 8, padding: "11px 14px", borderRadius: 10, border: `1.5px solid ${C.border}`, ...sans(13), outline: "none", boxSizing: "border-box" }}
+              />
+            ))}
+            <Btn onClick={sendOffer} disabled={slots.filter(s => s.trim()).length === 0 || saving} style={{ width: "100%" }}>
+              {saving ? "Отправляем..." : "Отправить варианты пациенту"}
+            </Btn>
+          </Card>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{ minHeight: "100%", background: COLORS.bg }}>
-      <TopBar title="Профиль" onBack={() => navigate("home")} />
-      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-
-        {/* User card */}
-        <Card style={{ textAlign: "center", padding: "28px 20px" }}>
-          <div style={{ width: 72, height: 72, borderRadius: "50%", background: COLORS.primaryLight, margin: "0 auto 12px", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32, overflow: "hidden", border: `3px solid ${COLORS.primary}33` }}>
-            {user.photo ? <img src={user.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "👤"}
-          </div>
-          <div style={{ fontFamily: "'Instrument Serif', serif", fontSize: 20, color: COLORS.text, marginBottom: 6 }}>{user.name}</div>
-          <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
-            <Badge color={user.role === "patient" ? "teal" : "orange"}>
-              {user.role === "patient" ? "🙋 Пациент" : "👨‍⚕️ Врач"}
-            </Badge>
-            <Badge color="gray">Telegram ID: {user.telegramId}</Badge>
-          </div>
-        </Card>
-
-        {/* Switch role */}
-        <Card>
-          <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14, marginBottom: 12 }}>🔄 Сменить роль</div>
-          {!switching ? (
-            <Btn onClick={() => setSwitching(true)} variant="ghost" style={{ width: "100%" }}>
-              Переключиться на {user.role === "patient" ? "врача 👨‍⚕️" : "пациента 🙋"}
-            </Btn>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, marginBottom: 4 }}>Выберите новую роль:</div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <Btn onClick={() => handleSwitch("patient")} variant={user.role === "patient" ? "primary" : "outline"} style={{ flex: 1 }}>🙋 Пациент</Btn>
-                <Btn onClick={() => handleSwitch("doctor")} variant={user.role === "doctor" ? "primary" : "outline"} style={{ flex: 1, borderColor: "#E65100", color: user.role === "doctor" ? "#fff" : "#E65100", background: user.role === "doctor" ? "#E65100" : "transparent" }}>👨‍⚕️ Врач</Btn>
-              </div>
-              <button onClick={() => setSwitching(false)} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, textDecoration: "underline" }}>Отмена</button>
-            </div>
-          )}
-        </Card>
-
-        {/* Info */}
-        <Card>
-          <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: COLORS.text, fontSize: 14, marginBottom: 10 }}>ℹ️ О приложении</div>
-          <div style={{ fontFamily: "'DM Sans', sans-serif", color: COLORS.textMuted, fontSize: 13, lineHeight: 1.6 }}>МедЦентр Здоровье · ul. Swobodna 1, Wrocław<br />Версия 1.0</div>
-        </Card>
-
-        <Btn onClick={onLogout} variant="outline" style={{ width: "100%", borderColor: COLORS.danger, color: COLORS.danger }}>Выйти из аккаунта</Btn>
+    <div style={{ minHeight: "100%" }}>
+      <TopBar title="Запросы на приём" />
+      <div style={{ padding: "16px 16px 24px", display: "flex", flexDirection: "column", gap: 10 }}>
+        {pending.length > 0 && <>
+          <div style={{ ...sans(13, 600, C.danger), marginBottom: 4 }}>🔴 Новые запросы</div>
+          {pending.map(a => {
+            const patient = allUsers[a.patientId];
+            return (
+              <Card key={a.id} onClick={() => setSelected(a.id)} style={{ border: `1.5px solid ${C.danger}44` }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 12, background: "#FFEBEE", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🧑</div>
+                  <div style={{ flex: 1 }}><div style={{ ...sans(14, 600) }}>{patient?.name || "Пациент"}</div><div style={{ ...sans(12, 400, C.muted) }}>{a.requestedWindow} · {a.preferredHalf}</div></div>
+                  <Badge color="red">Новый</Badge>
+                </div>
+              </Card>
+            );
+          })}
+        </>}
+        {offered.length > 0 && <>
+          <div style={{ ...sans(13, 600, C.warning), marginBottom: 4, marginTop: 8 }}>🟡 Ожидают выбора пациента</div>
+          {offered.map(a => {
+            const patient = allUsers[a.patientId];
+            return (
+              <Card key={a.id} style={{ opacity: 0.85 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 12, background: "#FFF3E0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22 }}>🧑</div>
+                  <div style={{ flex: 1 }}><div style={{ ...sans(14, 600) }}>{patient?.name || "Пациент"}</div><div style={{ ...sans(12, 400, C.muted) }}>Предложено {a.doctorSlots?.length} вариантов</div></div>
+                  <Badge color="orange">Ожидание</Badge>
+                </div>
+              </Card>
+            );
+          })}
+        </>}
+        {pending.length === 0 && offered.length === 0 && <div style={{ textAlign: "center", padding: "48px 0", ...sans(14, 400, C.muted) }}><div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>Новых запросов нет</div>}
       </div>
     </div>
   );
 }
 
-// ── NAV BAR ──────────────────────────────────────────────────────────────────
+function DoctorProfile({ profile, onLogout }) {
+  const dp = profile.doctorProfile;
+  return (
+    <div style={{ minHeight: "100%" }}>
+      <TopBar title="Мой профиль" right={<Btn onClick={onLogout} small variant="outline">Выйти</Btn>} />
+      <div style={{ padding: "16px 16px 32px", display: "flex", flexDirection: "column", gap: 12 }}>
+        <Card style={{ textAlign: "center", padding: "24px 20px" }}>
+          {profile.photoURL ? <img src={profile.photoURL} style={{ width: 80, height: 80, borderRadius: "50%", objectFit: "cover", margin: "0 auto 12px" }} /> : <div style={{ width: 80, height: 80, borderRadius: "50%", background: C.primaryLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 40, margin: "0 auto 12px" }}>👨‍⚕️</div>}
+          <div style={{ ...serif(20), marginBottom: 4 }}>{profile.name}</div>
+          <div style={{ ...sans(13, 500, C.primary), marginBottom: 8 }}>{dp.specialty}</div>
+          <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+            <Badge color="teal">Стаж {dp.experience} лет</Badge>
+            <Badge color="green">✓ Верифицирован</Badge>
+            {dp.rating && <Badge color="gray">⭐ {dp.rating}</Badge>}
+          </div>
+        </Card>
+        {dp.city?.length > 0 && <Card><div style={{ ...sans(13, 600), marginBottom: 8 }}>📍 Города</div>{dp.city.map((c, i) => <div key={i} style={{ ...sans(14), padding: "4px 0" }}>• {c}</div>)}</Card>}
+        <Card>
+          <div style={{ ...sans(13, 600), marginBottom: 10 }}>🩺 Услуги</div>
+          {dp.services?.map((s, i) => (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: i < dp.services.length - 1 ? `1px solid ${C.border}` : "none" }}>
+              <div><div style={{ ...sans(13, 500) }}>{s.name}</div><div style={{ ...sans(11, 400, C.muted) }}>{s.type === "online" ? "💬 Онлайн" : "🏥 Офлайн"}</div></div>
+              <div style={{ ...sans(14, 700, C.primary) }}>{s.price?.toLocaleString("ru-RU")} ₽</div>
+            </div>
+          ))}
+        </Card>
+        {dp.payment?.length > 0 && <Card><div style={{ ...sans(13, 600), marginBottom: 8 }}>💳 Оплата</div>{dp.payment.map((p, i) => <div key={i} style={{ ...sans(13), padding: "4px 0" }}>• {p}</div>)}</Card>}
+        {dp.resume && <Card><div style={{ ...sans(13, 600), marginBottom: 8 }}>📋 Резюме</div><div style={{ ...sans(13, 400, C.muted), lineHeight: 1.6 }}>{dp.resume}</div></Card>}
+        {dp.education && <Card><div style={{ ...sans(13, 600), marginBottom: 8 }}>🎓 Образование</div><div style={{ ...sans(13) }}>{dp.education}</div></Card>}
+      </div>
+    </div>
+  );
+}
 
-const NAV_PATIENT = [
-  { screen: "home", icon: "🏠", label: "Главная" },
-  { screen: "appointment", icon: "📅", label: "Запись" },
-  { screen: "support", icon: "🤖", label: "Помощник" },
-  { screen: "mydoctors", icon: "💬", label: "Врачи" },
-  { screen: "profile", icon: "👤", label: "Профиль" },
-];
-
-const NAV_DOCTOR = [
-  { screen: "home", icon: "🏠", label: "Главная" },
-  { screen: "mydoctors", icon: "💬", label: "Пациенты" },
-  { screen: "results", icon: "🧪", label: "Анализы" },
-  { screen: "prescriptions", icon: "💊", label: "Рецепты" },
-  { screen: "profile", icon: "👤", label: "Профиль" },
-];
-
-
-// ── APP ──────────────────────────────────────────────────────────────────────
-
+// ─── ROOT ─────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [user, setUser] = useState(null); // null = not authed
-  const [screen, setScreen] = useState("home");
-  const [appointmentFrom, setAppointmentFrom] = useState("home");
+  const { currentUser, profile, loading, login, register, logout } = useAuth();
+  const [screen, setScreen] = useState("login"); // login | register
 
-  const navigateTo = (s, from) => {
-    if (s === "appointment" && from) setAppointmentFrom(from);
-    setScreen(s);
-  };
-
-  const handleAuth = (userData) => {
-    setUser(userData);
-    setScreen("home");
-  };
-
-  const handleSwitchRole = (newRole) => {
-    setUser(u => ({ ...u, role: newRole }));
-    setScreen("home");
-  };
-
-  const handleLogout = () => {
-    setUser(null);
-    setScreen("home");
-  };
-
-  const NAV = user?.role === "doctor" ? NAV_DOCTOR : NAV_PATIENT;
-
-  const screenMap = {
-    home: <HomeScreen navigate={navigateTo} user={user} />,
-    doctors: <DoctorsScreen navigate={navigateTo} />,
-    services: <ServicesScreen navigate={navigateTo} />,
-    appointment: <AppointmentScreen navigate={navigateTo} fromScreen={appointmentFrom} />,
-    consult: <ConsultScreen navigate={navigateTo} />,
-    results: <ResultsScreen navigate={navigateTo} />,
-    prescriptions: <PrescriptionsScreen navigate={navigateTo} />,
-    support: <SupportChatScreen navigate={navigateTo} />,
-    mydoctors: <MyDoctorsScreen navigate={navigateTo} />,
-    profile: <ProfileScreen user={user} onSwitchRole={handleSwitchRole} onLogout={handleLogout} navigate={navigateTo} />,
-  };
+  // Если авторизован — сразу показываем приложение
+  useEffect(() => {
+    if (!loading && currentUser) setScreen("app");
+    if (!loading && !currentUser) setScreen("login");
+  }, [currentUser, loading]);
 
   return (
     <>
       <style>{FONTS}</style>
-      <style>{`
-        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        ::-webkit-scrollbar { width: 0; height: 0; }
-        body { background: #1a1a2e; }
-      `}</style>
-
-      {/* Phone frame */}
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%)", padding: 20 }}>
-        <div style={{ width: 390, height: 780, borderRadius: 44, background: COLORS.bg, overflow: "hidden", position: "relative", boxShadow: "0 40px 80px rgba(0,0,0,0.5), 0 0 0 2px #333, inset 0 0 0 1px #555", display: "flex", flexDirection: "column" }}>
+      <style>{`* { margin:0; padding:0; box-sizing:border-box; } ::-webkit-scrollbar{width:0} body{background:#1a2a3a} @keyframes spin{to{transform:rotate(360deg)}}`}</style>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "linear-gradient(135deg,#0f2027,#203a43,#2c5364)", padding: 20 }}>
+        <div style={{ width: 390, height: 780, borderRadius: 44, background: C.bg, overflow: "hidden", boxShadow: "0 40px 80px rgba(0,0,0,0.5),0 0 0 2px #333,inset 0 0 0 1px #555", display: "flex", flexDirection: "column" }}>
 
           {/* Status bar */}
-          <div style={{ background: COLORS.card, padding: "12px 24px 8px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-            <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 13, fontWeight: 600, color: COLORS.text }}>9:41</span>
-            <div style={{ display: "flex", gap: 6, fontSize: 13, color: COLORS.text }}>
-              <span>●●●</span><span>WiFi</span><span>🔋</span>
-            </div>
+          <div style={{ background: C.card, padding: "12px 24px 8px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+            <span style={{ ...sans(13, 600) }}>9:41</span>
+            <div style={{ display: "flex", gap: 6, fontSize: 13 }}><span>●●●</span><span>WiFi</span><span>🔋</span></div>
           </div>
 
-          {/* Telegram header */}
-          <div style={{ background: COLORS.primary, padding: "8px 16px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🏥</div>
+          {/* Telegram-style header */}
+          <div style={{ background: C.primary, padding: "8px 16px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🌉</div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 600, color: "#fff", fontSize: 14 }}>МедЦентр Здоровье</div>
-              <div style={{ fontFamily: "'DM Sans', sans-serif", color: "rgba(255,255,255,0.7)", fontSize: 11 }}>Mini App</div>
+              <div style={{ ...sans(14, 700, "#fff") }}>MedBridge</div>
+              <div style={{ ...sans(10, 400, "rgba(255,255,255,0.7)") }}>by MedBridge</div>
             </div>
-            {user && (
-              <div onClick={() => navigateTo("profile")} style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(255,255,255,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, overflow: "hidden" }}>
-                  {user.photo ? <img src={user.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : "👤"}
-                </div>
-                <div style={{ background: user.role === "doctor" ? "#E65100" : "rgba(255,255,255,0.2)", borderRadius: 10, padding: "2px 8px", fontFamily: "'DM Sans', sans-serif", fontSize: 11, fontWeight: 600, color: "#fff" }}>
-                  {user.role === "doctor" ? "Врач" : "Пациент"}
-                </div>
+            {profile && (
+              <div style={{ background: "rgba(255,255,255,0.15)", borderRadius: 8, padding: "3px 10px" }}>
+                <span style={{ ...sans(10, 600, "#fff") }}>{profile.role === "patient" ? "🪪 Моя карта" : "⚕️ Pro"}</span>
               </div>
             )}
           </div>
 
-          {/* Screen content */}
+          {/* Content */}
           <div style={{ flex: 1, overflowY: "auto" }}>
-            {!user
-              ? <AuthScreen onAuth={handleAuth} />
-              : (screenMap[screen] || screenMap.home)
-            }
-          </div>
+            {loading && <Spinner />}
 
-          {/* Bottom nav — only when authed */}
-          {user && (
-            <div style={{ background: COLORS.card, borderTop: `1px solid ${COLORS.border}`, display: "flex", padding: "6px 0 10px", flexShrink: 0 }}>
-              {NAV.map(n => (
-                <button key={n.screen} onClick={() => navigateTo(n.screen)} style={{ flex: 1, background: "none", border: "none", cursor: "pointer", padding: "4px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 2 }}>
-                  <span style={{ fontSize: 20 }}>{n.icon}</span>
-                  <span style={{ fontFamily: "'DM Sans', sans-serif", fontSize: 10, fontWeight: screen === n.screen ? 700 : 400, color: screen === n.screen ? COLORS.primary : COLORS.textMuted }}>{n.label}</span>
-                  {screen === n.screen && <div style={{ width: 4, height: 4, borderRadius: "50%", background: COLORS.primary, marginTop: 1 }} />}
-                </button>
-              ))}
-            </div>
-          )}
+            {!loading && screen === "login" && (
+              <LoginScreen onLogin={login} goRegister={() => setScreen("register")} />
+            )}
+            {!loading && screen === "register" && (
+              <RegisterScreen onRegister={register} goLogin={() => setScreen("login")} />
+            )}
+            {!loading && screen === "app" && profile?.role === "patient" && (
+              <PatientApp profile={profile} currentUser={currentUser} logout={logout} />
+            )}
+            {!loading && screen === "app" && profile?.role === "doctor" && (
+              <DoctorApp profile={profile} currentUser={currentUser} logout={logout} />
+            )}
+          </div>
         </div>
       </div>
     </>
